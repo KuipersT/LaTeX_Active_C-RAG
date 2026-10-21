@@ -1,0 +1,22 @@
+# Project folders
+build/
+IGNORE/
+
+# LaTeX auxiliary files (if you compile outside build/)
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+*.lof
+*.lot
+
+# Editor and OS files
+*~
+.DS_Store

@@ -1,0 +1,35 @@
+\documentclass{article}
+\usepackage[a4paper,top=2.2cm,bottom=2.2cm,left=2.6cm,right=2.6cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{times}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{xcolor}
+\usepackage{cite}
+\usepackage{enumitem}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, calc, fit, backgrounds, shapes.geometric}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\input{macro}
+\newif\ifshowmappings
+\showmappingsfalse
+
+\title{Active Conformal Retrieval-Augmented Generation}
+\author{Tom Kuipers}
+\date{October 2026}
+
+\begin{document}
+\maketitle
+
+\input{sec/background.tex}
+
+\input{sec/prob_form.tex}
+
+\input{sec/approach.tex}
+
+
+\bibliographystyle{IEEEtran}
+\bibliography{bibliography}
+
+\end{document}

@@ -1,0 +1,75 @@
+% General system model.
+% Requires \usepackage{tikz} and \usetikzlibrary{arrows.meta, shapes.geometric} in the preamble.
+%
+% The mappings in the boxes (e.g. "x \mapsto D_0") are shown when \ifshowmappings is true.
+% It is true by default. To hide them, put the following in the preamble:
+%   \newif\ifshowmappings
+%   \showmappingsfalse
+\makeatletter
+\@ifundefined{ifshowmappings}{\newif\ifshowmappings\showmappingstrue}{}
+\makeatother
+\providecommand{\sysmap}[1]{\ifshowmappings\\ $#1$\fi}
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners=2pt, align=center, minimum height=0.9cm, inner sep=3pt, font=\scriptsize},
+  loop/.style={box, fill=blue!10, draw=blue!50!black},
+  store/.style={draw, cylinder, shape border rotate=90, aspect=0.22, align=center, minimum height=1.2cm, inner sep=2pt, font=\scriptsize},
+  sink/.style={draw=blue!50!black, ellipse, fill=blue!10, minimum height=0.6cm, inner sep=2pt, font=\scriptsize},
+  arr/.style={-{Stealth[length=1.8mm]}, semithick},
+  looparr/.style={arr, draw=blue!50!black},
+  lbl/.style={font=\scriptsize},
+  looplbl/.style={font=\scriptsize, text=blue!50!black}
+]
+  % Rounds t >= 1
+  \draw[blue!50!black, dashed, fill=blue!3, rounded corners=3pt] (6.5,5.6) rectangle (15.5,7.25);
+  \node[looplbl, anchor=north west] at (6.5,7.25) {Rounds $t \geq 1$};
+
+  % Data stores
+  \node[store, minimum width=1.4cm] (K) at (1.2,3.6) {Corpus\\ $\mathcal{K}$};
+  \node[store, minimum width=2.1cm] (D) at (4.9,3.6) {Evidence store\\ $D_{t} \subseteq \mathcal{K}$};
+  \node[store, minimum width=1.6cm] (lab) at (14.7,3.6) {Labelled\\ queries};
+
+  % Round 0
+  \node[box, minimum width=2.6cm] (ret) at (1.45,1.2) {Initial retrieval\\ over hops $h = 0, 1, \ldots$\sysmap{x \mapsto D_{0}}};
+  \node[box, minimum width=2.2cm] (llm) at (4.5,1.2) {LLM\sysmap{(x, D_{0}) \mapsto y}};
+  \node[box, minimum width=2.4cm] (ext) at (7.25,1.2) {Subclaim extraction\sysmap{y \mapsto \hat{y}_{0}}};
+  \node[box, minimum width=2.6cm] (score) at (8.5,3.6) {Subclaim scoring\sysmap{(x, \hat{y}_{t}, D_{t}) \mapsto s_t}};
+  \node[box, minimum width=2.3cm] (dec) at (12.0,3.6) {Decision\sysmap{s_t \mapsto (K_{t}, W_{t}, Z_{t})}};
+  \node[box, minimum width=2.8cm] (sel) at (11.9,1.2) {Final selection\sysmap{(\hat{y}_{t^*}, D_{t^*}, s_{t^*}) \mapsto \hat{y}_{\mathrm{final}}}};
+
+  % Rounds t >= 1 only
+  \node[loop, minimum width=3.0cm] (rev) at (8.6,6.4) {Subclaim revision\sysmap{(x, K_{t}, W_{t}, D_{t+1}) \mapsto \hat{y}_{t+1}}};
+  \node[loop, minimum width=2.4cm] (qgen) at (12.0,6.4) {Query generation\sysmap{(x, c, D_{t}) \mapsto q_t(c)}};
+  \node[sink] (rm) at (14.4,6.4) {Removed};
+
+  % Round 0 arrows
+  \draw[arr] (-0.5,1.2) -- node[lbl, above] {$x$} (ret.west);
+  \draw[arr] (-0.25,1.2) -- (-0.25,0.15) -- (llm.south |- 0,0.15) -- (llm.south);
+  \draw[arr] ([xshift=-0.3cm]K.bottom |- ret.north) -- node[lbl, left] {$q_{h}$} ([xshift=-0.3cm]K.bottom);
+  \draw[arr] ([xshift=0.3cm]K.bottom) -- node[lbl, right] {$\hat{D}_{h}$} ([xshift=0.3cm]K.bottom |- ret.north);
+  \draw[arr] (ret.east) -- node[lbl, below] {$D_{0}$} (llm.west);
+  \draw[arr] (3.0,1.2) -- (3.0,2.4) -- (D.bottom |- 0,2.4) -- (D.bottom);
+  \draw[arr] (llm.east) -- node[lbl, above] {$y$} (ext.west);
+  \draw[arr] ([xshift=-0.4cm]ext.north) |- node[lbl, left, pos=0.65] {$\hat{y}_{0}$} (score.west |- 0,3.35);
+  \draw[arr] (D.east |- 0,3.85) -- node[lbl, above] {$D_{t}$} (score.west |- 0,3.85);
+  \draw[arr] (score.east) -- node[lbl, above] {$s_t$} (dec.west);
+  \draw[arr] (dec.south) -- node[lbl, left, align=right] {stop at time $t^*$\\ $\hat{y}_{t^*}, D_{t^*}, s_{t^*}$} (dec.south |- sel.north);
+  \draw[arr] (sel.east) -- node[lbl, above] {$\hat{y}_{\mathrm{final}}$} (15.7,1.2);
+  \draw[arr, dashed] (lab.bottom) |- (12.8,2.5) -- (12.8,0 |- sel.north);
+
+  % Rounds t >= 1 arrows
+  \draw[looparr] (dec.north) -- node[looplbl, left, align=center, pos=0.64] {rework\\ $W_{t}$} (qgen.south);
+  \draw[looparr] ([xshift=-0.9cm]dec.north) |- node[looplbl, below, align=center, pos=0.85] {keep $K_{t}$,\\ rework $W_{t}$} (9.9,4.95) -- (9.9,0 |- rev.south);
+  \draw[looparr] (8.55,0 |- rev.south) -- node[looplbl, left] {$\hat{y}_{t+1}$} (8.55,0 |- score.north);
+  \draw[looparr] ([xshift=0.9cm]dec.north) |- node[looplbl, below, align=center, pos=0.75] {remove $Z_{t}$} (14.4,4.95) -- (14.4,0 |- rm.south);
+  \draw[looparr] (qgen.north) -- (qgen.north |- 0,7.7) -- node[looplbl, above] {$q_t(c),\ c \in W_{t}$} (K.top |- 0,7.7) -- (K.top);
+  \draw[looparr] (K.east) -- node[looplbl, above, yshift=1pt] {$\mathrm{Retrieve}(q_t(c))$} (D.west);
+  \draw[looparr] (D.top) -- (D.top |- rev.west) -- node[looplbl, above, pos=0.35] {$D_{t+1}$} (rev.west);
+  \draw[looparr, dashed] (lab.west) -- (dec.east);
+\end{tikzpicture}%
+}
+\caption{Schema of the system. Round $0$, in black, is used by every method, and the rounds $t \geq 1$, in blue, are only used when the decision sends subclaims to be reworked. The dashed arrows show where the labelled queries are used for calibration.}
+\label{fig:system}
+\end{figure}

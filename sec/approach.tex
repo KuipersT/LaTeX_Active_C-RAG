@@ -1,0 +1,80 @@
+\section{Our Approach}
+ 
+Our approach is to augment the general pipepline with a a calibrated second-chance mechanism that can decide to perform targeted retrieval for further evidence that a subclaim is missing. For round $0$, we use the base pipeline of any of the methods above. The subclaims of $\hat{y}_t$ are kept in an order, for instance with a bridge subclaim placed before the subclaims that rely on it. The \emph{pilot set}, a small set of labelled queries, is used only once, before any query is answered, to fix the rule of the decision.
+
+Taking the null hypothesis $H_c$ for each subclaim $c$ to be that $c$ is unsupported, accepting $c$ as supported, either in $K_t$ or in $\hat{y}_{\mathrm{final}}$, is equivalent to rejecting $H_c$, which we call certifying $c$. The guarantee \eqref{eq:cf_seq} therefore bounds the family-wise error rate (FWER) over the subclaims of a single answer, i.e., the probability of wrongly rejecting at least one $H_c$. Reworking $c$ collects further evidence for the same hypothesis before a decision is made, subclaims revised or added in later rounds are new hypotheses created from the evidence of earlier rounds, and stopping ends the testing. The system therefore carries out a sequence of tests as evidence arrives, where each test is a another chance of keeping an unsupported subclaim. In the existing methods, \eqref{eq:cf} is obtained for a single test of a fixed set of subclaims, whereas here both the hypotheses and the number of tests are chosen from the data.
+ 
+Subclaim scoring alike the prior art requires a score of whether the evidence supports a subclaim. The relevance score of Conformal-RAG given in \eqref{eq:crag_score} is not well suited for this, and so we instead use a natural language inference (NLI) model, which gives the probability $p_{\mathrm{ent}}(d, c)$ that a document $d$ entails a subclaim $c$, and we score $c$ on an evidence set $D$ by its best supporting document,
+\begin{equation}
+  E(c, D) = \max_{d \in D} p_{\mathrm{ent}}(d, c).
+  \label{eq:entailment}
+\end{equation}
+This score is high only if some document $d$ actually entails $c$ and does not depend on how the question was worded. Cosine similarity, in contrast, rewards documents that are close to a subclaim in topic even if they do not support it, and the factor $\mathrm{sim}(x, d)$ in \eqref{eq:crag_score} penalises documents about a bridge entity. Spielberg's biography, for instance, is not very similar to the question ``Where was the director of Jaws born?'', but it clearly entails $c_2$. Entailment-based scorers have also been found to match or outperform LLM confidence scores for conformal factuality in RAG, at a far lower computational cost \cite{chen2026conformal}. Since $D_t$ only grows from one round to the next, the entailment score of a subclaim that is not rewritten can only increase.
+ 
+We note however that the entailment score is not a calibrated probability, and so a threshold on $E$ chosen by hand would have no clear meaning, and we would not know how often an unsupported subclaim passes the decision. We therefore calibrate the scores with the e-scores of Dhillon et al.\ \cite{dhillon2026escores}, where an e-value is a non-negative statistic whose average is at most 1 when the subclaim is unsupported, and an e-score is its inverse, so that a small e-score indicates strong evidence of support. The e-score of a subclaim compares its entailment score with a single constant $S$, which summarises how convincing the unsupported subclaims of a pilot set $\mathcal{D}_{\mathrm{pilot}}$ of $m$ labelled queries look, and we refer to these queries as pilot queries. This set s kept apart from the $n$ labelled queries $\mathcal{D}_{\mathrm{cal}}$ that calibrate the final selection. Let $f$ be a non-negative increasing transform of the entailment score, such as $E$ itself or its odds $E/(1-E)$, and write $f(c; D) = f\bigl(E(c, D)\bigr)$. For each pilot query $j$, only the base pipeline is run, which gives its subclaims $\hat{y}_{0,j}$ and evidence $D_{0,j}$, and each subclaim is labelled as supported, $a(c) = 1$, or unsupported, $a(c) = 0$. We record how convincing the most convincing unsupported subclaim of query $j$ looks,
+\begin{equation}
+  f^*_j = \max\bigl\{ f\bigl(c; D_{0,j}\bigr) : c \in \hat{y}_{0,j},\ a(c) = 0 \bigr\},
+  \label{eq:fstar}
+\end{equation}
+with $f^*_j = 0$ if query $j$ has no unsupported subclaim, and we fix the pilot constant $S = \sum_{j=1}^{m} f^*_j$ once and for all. 
+
+It is important to note that that the pilot set must be kept separate from the calibration set. For the guarantees at the final selection to hold at test time, the constant $S$ and thus the decision rule must have been already fixed so that test-time and calibration time queries receive the same treatment by the final selection. Keeping a separate pilot set avoids calibration data providing a biased reponse at the final selection and has little to no overhead since only the base pipeline is run on the pilot queries.
+ 
+At round $t$, subclaim scoring then gives each subclaim $c \in \hat{y}_t$ the e-score
+\begin{equation}
+  \eta_t(c) = \frac{f\bigl(c; D_t\bigr) + S}{(m+1)\, f\bigl(c; D_t\bigr)},
+  \label{eq:escore}
+\end{equation}
+so that $s_t = \eta_t$. This is roughly the average of the values $f^*_j$ divided by $f(c; D_t)$, and is small when $c$ scores much higher than the most convincing unsupported subclaims of the pilot set typically do.
+
+For the decision rule, the decision goes through the subclaims of $\hat{y}_t = (c_1, c_2, \ldots)$ in order and certifies each one whose e-score is small, until it reaches the first subclaim that it cannot certify,
+\begin{equation}
+  j_t = \min\bigl\{ j : \eta_t(c_j) > \alpha_{\mathrm{keep}} \bigr\}, \qquad K_t = \{ c_1, \ldots, c_{j_t - 1} \}, \qquad u_t = c_{j_t},
+  \label{eq:check}
+\end{equation}
+where $K_t$ is the set of subclaims certified by round $t$, $u_t$ is the subclaim under test, which is reworked, so that $W_t = \{u_t\}$, and $\alpha_{\mathrm{keep}}$ is a tolerance that is fixed in advance. The subclaims after $u_t$ are not tested at round $t$, even if their e-scores are small, so that a subclaim is only certified once every subclaim before it has been, as a subclaim such as $c_2$, which relies on an earlier subclaim, should not be certified before it. If every subclaim of $\hat{y}_t$ is certified, there is no subclaim under test. This tolerance only guides the loop, and it need not equal the level $\alpha$ of the final guarantee. As the entailment score of a kept subclaim can only increase with new, a subclaim that has been kept stays kept\tk{unless we implement contradiction scores too, as in the other draftt, see below}. At round $0$, the subclaims of a new query come from the same base pipeline as those of the pilot set, and the probability that some unsupported subclaim falls in $K_0$ is at most $\alpha_{\mathrm{keep}}$ \tk{double check against Theorem 1 of Dhillon et al.}. The reason is that, for the most convincing unsupported subclaim $c$ of a new query, $1/\eta_0(c) = (m+1) f(c; D_0) / \bigl(f(c; D_0) + S\bigr)$ is an e-value, i.e., a statistic whose average is at most 1, since the new query is exchangeable with the pilot queries, and such a statistic can only rarely become large. The decision at round $0$ thus controls the FWER over the subclaims of the base pipeline at level $\alpha_{\mathrm{keep}}$. At later rounds, the loop has changed the subclaims and their evidence, so that they no longer resemble those of the pilot set and $\eta_t$ loses its calibration. The decision then still ranks the subclaims, but without a guarantee, and the final selection is still needed. We use e-scores rather than the quantile thresholds of the existing methods for three reasons. E-values can be averaged and remain e-values, which allows several transforms of the score, or several scorers, to be combined. The tolerance $\alpha_{\mathrm{keep}}$ can be chosen after the scores have been seen. Lastly, e-values are the building block for evidence that accumulates over rounds. In the example, $c_1$ is entailed by the Jaws article, so that $\eta_0(c_1)$ is small and $c_1 \in K_0$, whereas $c_2$ is entailed by no retrieved document, so that $\eta_0(c_2)$ is large and $c_2 = u_0$ is the subclaim under test. The same construction, applied to the probability of contradiction, would also allow subclaims that the evidence clearly contradicts to be removed, and until then $Z_t = \emptyset$ \tk{removed the contradiction rule for now just to keep things simple but we can of course have two e-scores for both}.
+ 
+For query generation, an LLM writes a retrieval query $q_t(u_t)$ from the question $x$, the subclaim under test $u_t$ and the evidence $D_t$, so that the query can make use of a bridge entity that an earlier round has identified. The documents returned for this query are added to the evidence store, and \eqref{eq:store} becomes
+\begin{equation}
+  D_{t+1} = D_t \cup \mathrm{Retrieve}\bigl(q_t(u_t)\bigr).
+  \label{eq:targeted}
+\end{equation}
+In the example, $c_2$ yields a query such as ``Steven Spielberg birthplace'', which retrieves his biography. This is where our approach differs from the multi-hop retrieval of Rehman et al., as their queries are written from the question and the evidence found so far. This means that the retrieval has no reason to look for the evidence of a particular subclaim, whereas ours are written from the subclaims that are failing.
+ 
+For subclaim revision, an LLM update $\mathrm{Upd}$ rewrites the subclaim under test given new evidence, or leaves it unchanged, and may add new subclaims that the new evidence supports, which gives the subclaims of the next round,
+\begin{equation}
+  \hat{y}_{t+1} = \mathrm{Rev}(x, K_t, W_t, D_{t+1}) = \bigl( c_1, \ldots, c_{j_t - 1},\ \mathrm{Upd}(x, u_t, D_{t+1}),\ c_{j_t + 1}, \ldots \bigr),
+  \label{eq:revise}
+\end{equation}
+where $\mathrm{Upd}(x, u_t, D_{t+1})$ is the rewritten or unchanged $u_t$, followed by any newly added subclaims, so that the certified subclaims, the later subclaims and their order are kept. Any subclaims with a sufficiently high e-score are not rewritten. A revision is useful when the first wording of a subclaim was not quite right, for instance when the evidence gives a more precise date than the one first stated, so that the corrected subclaim can be supported where the original could not.
+% In the example, $c_2$ needs no rewriting, as Spielberg's biography entails it as it stands, so that $\eta_1(c_2)$ is small and $c_2 \in K_1$.
+ 
+For the stopping rule (``stop'' arrow in Figure~\ref{fig:system}), the process concludes at the round\tk{either I can make this another box or just the arrow for simplicity}
+\begin{equation}
+  t^* = \min\bigl\{ t : K_t = \hat{y}_t, \ \text{or} \ D_{t+1} = D_t, \ \text{or} \ t = T \bigr\},
+  \label{eq:stop}
+\end{equation}
+that is, when every subclaim has been certified, or when the targeted retrieval for the subclaim under test returns no new documents, in which case further rounds cannot change its score, it can no longer be certified, and no later subclaim can be tested. It may also terminate when a fixed budget of $T$ rounds is used up. It then passes $\hat{y}_{t^*}$, $D_{t^*}$ and $s_{t^*}$ to the final selection. The stopping round depends on the data, and different queries go through different numbers of rounds, but this does not harm the guarantee, since the calibration queries of the final selection are processed by the same loop, including its stopping rule.
+
+The guarantee at round $0$ does not extend to the later rounds. A reworked subclaim is checked again at the next round with more evidence, and the revision may produce subclaims that the pilot set has never seen. If every check is carried out at the tolerance $\alpha_{\mathrm{keep}}$, the chance that some unsupported subclaim is eventually kept grows with the number of checks. Controlling the error inside the loop therefore requires tests that remain valid when they are repeated as evidence arrives.
+
+An e-process \cite{ramdas2023game} provides such a test for a single subclaim. The evidence for a subclaim $c$ is accumulated over the rounds into a non-negative quantity $M_t(c)$, which starts at $1$ and is updated as new documents are retrieved, such that, when $c$ is unsupported, the evidence of a new round is not expected to increase it, regardless of the earlier rounds,
+\begin{equation}
+  \mathbb{E}\bigl[ M_{t+1}(c) \mid \text{everything observed up to round } t \bigr] \leq M_t(c).
+  \label{eq:eprocess}
+\end{equation}
+By Ville's inequality \cite{ramdas2023game}, such an $M_t(c)$ ever exceeds $1/\alpha$ with probability at most $\alpha$ when $c$ is unsupported, so that $c$ can be certified as soon as $M_t(c) \geq 1/\alpha$, at the same level $\alpha$ as the guarantee \eqref{eq:cf}, independently of the number of rounds and of the round at which the loop stops.
+
+An answer, however, contains several subclaims, which may also be added over the rounds as the loop revises them. Fixed-sequence testing (FST)~\cite{bauer1991multiple} combines the tests of several hypotheses by testing them in an order fixed in advance, each at the full level $\alpha$, and stopping at the first hypothesis that is not rejected. Since a later hypothesis is only tested once all of those before it have been rejected, only the first unsupported subclaim in the order can lead to an error, so that the FWER is at most $\alpha$ without dividing $\alpha$ among the hypotheses. This is the structure of the decision \eqref{eq:check}, in which the subclaims are ordered as $c_1, c_2, \ldots$ by a rule that is still to be decided, and only the first subclaim that has not yet been certified is under test, with its e-process starting at the round at which it comes under test. The stopping rule \eqref{eq:stop} is that of fixed-sequence testing, as the loop stops once the subclaim under test can no longer be certified, and this also determines when to stop generating further subclaims. In the example, $c_1$ is tested before $c_2$, and if $c_1$ cannot be certified, $c_2$ would not be stated in any case, as it relies on $c_1$.
+
+The e-scores \eqref{eq:escore} are not e-processes, as they are recomputed at every round from all of the evidence collected so far, and constructing an e-process from NLI scores remains open. For now, the guarantee comes from the final selection in Figure~\ref{fig:system}, which applies $F_\tau$ to $\hat{y}_{t^*}$ with the score $f(c; D_{t^*})$ and chooses $\hat{\tau}$ as Mohri and Hashimoto do, but from calibration queries that have each gone through the whole procedure, and returns $\hat{y}_{\mathrm{final}} = F_{\hat{\tau}}(\hat{y}_{t^*})$. As long as this procedure is fixed in advance and is the same at calibration and test time, \eqref{eq:cf_seq} holds regardless of how many subclaims the loop recovers, and with $T = 0$ it reduces to the existing retrieve-then-filter methods.
+ 
+% \section{Questions for Discussion}
+
+% It would be great to get your input on some of these
+% \begin{enumerate}[leftmargin=*]
+%   \item Does the e-process of a subclaim need to start at the round at which it comes under test for the FWER to be controlled, or can evidence collected for it in earlier rounds also be used?
+%   \item How should subclaims that do not depend on one another be ordered, given that one which cannot be certified early prevents every later subclaim from being tested, even if those are well supported?
+%   \item Can the order be chosen from the evidence of earlier rounds, as long as each test only uses later evidence? Ordering the subclaims by their scores at the final selection would reduce fixed-sequence testing to the existing threshold filter.
+%   \item Should part of $\alpha$ be reserved so that testing can continue after a subclaim fails, as in the online fallback procedure of \cite{tian2021online}? The same question arises when a subclaim that could not be certified is replaced by a revision, since the sequence then continues after a hypothesis that was not rejected.
+% \end{enumerate}
