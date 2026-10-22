@@ -34,10 +34,12 @@ The subclaim revision block then outputs the modifed subclaims for the next roun
 \begin{equation}
   \hat{y}_{t+1} = k_t \cup \mathrm{Rev}(x, w_t, D_{t+1}) 
 \end{equation}
-in which each subclaim of $w_t$ is rewritten given the new evidence \tk{or left unchanged -- plausible that no rewriting is necessary if we retrieve the correct evidence (i.e. Steven Spielberg's biography)}. New subclaims may also be added. The next round  begins from the subclaim scoring of the updated subclaims $\hat{y}_{t+1}$.
-\tk{I am fine removing $k_t$ from the parameters of the revision algorithm is fine, but it means that we forego the opportunity to update already verified claims. For example, I had in mind that if further retrieval might surface new information such as a month to go along with a year of an event already included in the current subclaim, then we could update it. This has statistical implications, but it'd be good to know if you think it's worth keeping this option open.}
+in which each subclaim of $w_t$ is rewritten given the new evidence.
+% \tk{or left unchanged -- plausible that no rewriting is necessary if we retrieve the correct evidence (i.e. Steven Spielberg's biography)}. 
+New subclaims may also be added. The next round  begins from the subclaim scoring of the updated subclaims $\hat{y}_{t+1}$.
+% \tk{I am fine removing $k_t$ from the parameters of the revision algorithm is fine, but it means that we forego the opportunity to update already verified claims. For example, I had in mind that if further retrieval might surface new information such as a month to go along with a year of an event already included in the current subclaim, then we could update it. This has statistical implications, but it'd be good to know if you think it's worth keeping this option open.}
 
-Finally, the returned filtered set is given by $\hat{y} = F_{\hat{\tau}}(\hat{y}_{t^*})$, where the threshold $\hat{\tau}$ is calibrated using calibration data as in CF and C-RAG via \eqref{eq:filter_set}. The three methods differ only in the initial retrieval and in the subclaim scorer. Conformal factuality uses no retrieval, thus $D_0 = \emptyset$, the LLM writes $y$ from $x$ alone, and $s_0(c)$ is the score $s(c)$ obtained from the LLM. Conformal-RAG uses a single hop with $q_0 = x$, and the method of Rehman and Yeh uses several hops, in which each query $q_h$ is rewritten by an LLM from $x$ and the documents received in earlier hops. \tk{Better to return to the choice of scores later: Both use the relevance score $R(c)$ of \eqref{eq:crag_score} on $D_0$ as $s_0(c)$.} 
+Finally, the returned filtered set is given by $\hat{y} = F_{\hat{\tau}}(\hat{y}_{t^*})$, where the threshold $\hat{\tau}$ is calibrated using calibration data as in CF and C-RAG via \eqref{eq:filter_set}. 
 
 The answer that the system finally returns must still satisfy the guarantee \eqref{eq:cf}, that is,
 \begin{equation}
