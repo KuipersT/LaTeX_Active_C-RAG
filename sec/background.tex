@@ -1,46 +1,30 @@
 \section{Background: Conformal Retrieval-Augmented Generation}\label{sec:background}
  
 % The responses that a large language model (LLM) produces to a user's query, $x$, may be, in part or in full, factually incorrect. 
-An LLM generates a claim $y$ in response to $x$ from its own learned parametric knowledge, and may also rely on information retrieved from an external corpus, as in retrieval-augmented generation (RAG)~\cite{lewis2020retrieval}. For typical queries that go beyond a simple `yes-no', this claim is formed of multiple subclaims $\hat{y} = \{c_1, c_2, \ldots\}$, obtained by splitting $y$ with an LLM, that together produce a cohesive response. To determine how factual a claim is, the factuality of each of its subclaims must be checked. We call a subclaim $c$ supported if a reference $y^*$ for the query, such as a ground-truth answer or a trusted knowledge source, entails it, which we write $y^* \Rightarrow c$. For a labelled query, such a reference is available, and each subclaim is marked as supported or not, either by human annotators or by an LLM, $a(c)$, that compares it with $y^*$ and gives the labels
+An LLM generates a claim $y$ in response to $x$ from its own learned parametric knowledge, and may also rely on information retrieved from an external corpus, as in retrieval-augmented generation (RAG)~\cite{lewis2020retrieval}. For typical queries, the claim $y$ can be split into multiple subclaims $\hat{y} = \{c_1, c_2, \ldots\}$ \tk{refs}. To determine how factual the claim $y$ is, the factuality of each of its subclaims must be checked. We call a subclaim $c$ supported, which is denoted as $a(c \mid x) = 1$, if a reference response $y^*$ for the query $x$ entails it, i.e. 
+% For a labelled query, such a reference is available, and each subclaim is marked as supported or not, either by human annotators or by an LLM, $a(c)$, that compares it with $y^*$ and gives the labels
 \begin{equation}
-  a(c) = \begin{cases}
+  a(c \mid x) = \begin{cases}
   1 \text{ if } y^* \Rightarrow c \\
   0 \text{ otherwise.}
   \end{cases}
 \end{equation}
 % We write $a(c) = 1$ if $y^* \Rightarrow c$ and $a(c) = 0$ otherwise.
  
-Recent work on conformal factuality (CF) \cite{mohri2024language} provides a means of checking factuality over such subclaims, together with a procedure for filtering out the subclaims that are insufficiently supported. Each subclaim receives a score $s(c)$ that reflects how confident the model is in it, for example the confidence that GPT-4 states for it, or how often the subclaim reappears in further outputs sampled from the model. For a threshold $\tau$, the filtered set keeps the subclaims that score at least $\tau$, i.e.,
+Conformal factuality (CF) \cite{mohri2024language} leverages a score $s(c \mid x)$ that reflects how confident the model is in subclaim $c$, e.g. based on log-probabilities of self-confidence scores \tk{refs}. For a threshold $\tau$, the filtered set is evaluated as
 \begin{equation}\label{eq:filter_set}
-  F_\tau(\hat{y}) = \{ c \in \hat{y} : s(c) \geq \tau \}.
+  F_\tau(\hat{y} \mid x) = \{ c \in \hat{y} : s(c \mid x) \geq \tau \}.
 \end{equation}
 
-Leveraging methodology inspired by split-conformal prediction \tk{cite}, CF chooses the threshold $\hat{\tau}$ from a set of $n$ labelled queries, which we refer to as calibration queries, in two steps. For each calibration query, it finds the smallest threshold $\tau$ above which every retained subclaim $c$ is supported, i.e., $a(c) = 1$; and the threshold $\hat{\tau}$ is then taken as a quantile of these $n$ values, determined by a level $\alpha \in (0, 1)$ that is fixed in advance. For a new query that is exchangeable with the calibration queries, for instance because all of them are drawn independently from the same distribution, this gives the guarantee
+Conformal-RAG (C-RAG)~\cite{feng2025response} uses a RAG pipeline that retrieves a set of documents $D_0$ from a corpus with the user's query $x$, writes the answer from these documents, and then scores each resulting subclaim by how relevant the retrieved documents are to it, producing the score
+\begin{equation}\label{eq:crag_score}
+  s(c \mid x, D_0) = \max_{d \in D_0} \bigl[\mathrm{sim}(x, d)\, \mathrm{sim}(c, d)\bigr]_+,
+\end{equation}
+where $\mathrm{sim}$ is the cosine similarity between embeddings and $[\cdot]_+ = \max(0, \cdot)$. The score is high when some retrieved document is both relevant to the question and similar to the subclaim. This score results in a selection of subclaims via \eqref{eq:filter_set} that is grounded in retrieved evidence rather than in the confidence of the model.
+
+Leveraging methodology inspired by split-conformal prediction \tk{ref}, CF and Conformal-RAG choose the threshold $\hat{\tau}$ using a set of $n$ labelled queries $(x, y^{*})$. For a new query that is exchangeable with the calibration queries, e.g. for independent and identically distributed (i.i.d.) data, this gives the guarantee
 \begin{equation}
-  \Pr\bigl[\, y^* \Rightarrow c \ \text{for all} \ c \in F_{\hat{\tau}}(\hat{y}) \,\bigr] \geq 1 - \alpha,
+  \Pr\bigl[\, y^* \Rightarrow c \ \text{for all} \ c \in F_{\hat{\tau}}(\hat{y} \mid x) \,\bigr] \geq 1 - \alpha,
   \label{eq:cf}
 \end{equation}
-where the probability is taken over the calibration queries and the new query, that is, with probability at least $1 - \alpha$, the filtered set contains no unsupported subclaim. 
-
-% Taking the null hypothesis $H_c$ for each subclaim $c$ to be that $c$ is unsupported, keeping $c$ in the filtered set is equivalent to rejecting $H_c$. The guarantee \eqref{eq:cf} therefore bounds the family-wise error rate (FWER) over the subclaims of a single answer, i.e., the probability of wrongly rejecting at least one $H_c$. 
-
-In the special case where no subclaims remain, i.e., $F_{\hat{\tau}}(\hat{y}) = \emptyset$, the model abstains. Such abstentions are valid under the guarantee \eqref{eq:cf}, since an empty set contains no unsupported subclaim, but they do not answer the user's query. 
-
-% A method could satisfy \eqref{eq:cf} by abstaining often, and the guarantee says nothing about how useful the answers are. In practice, high factuality has been observed to coincide with empty or vacuous outputs \cite{chen2026conformal}.
- 
-% When the scores are poor at separating supported subclaims from unsupported ones, the calibrated threshold must be high. Many supported subclaims are then removed along with the unsupported ones, and abstentions become frequent. 
-
-Conformal-RAG \cite{feng2025response} uses a RAG pipeline that retrieves a set of documents $D$ from a corpus with the user's query, writes the answer from these documents, and then scores each resulting subclaim by how relevant the retrieved documents are to it,
-\begin{equation}\label{eq:crag_score}
-  R(c) = \max_{d \in D} \bigl[\mathrm{sim}(x, d)\, \mathrm{sim}(c, d)\bigr]_+,
-\end{equation}
-where $\mathrm{sim}$ is the cosine similarity between embeddings and $[\cdot]_+ = \max(0, \cdot)$. The score is high when some retrieved document is both relevant to the question and similar to the subclaim. They arrive at the same guarantee as in \eqref{eq:cf}, together with a group-conditional version that holds separately within groups of queries, such as topics. Compared to the model-based scores of conformal factuality, this results in a selection of subclaims that is grounded in retrieved evidence rather than in the confidence of the model, and in their experiments it retains substantially more subclaims at the same level, removing only 8.9\% of the subclaims at an 85\% target on FActScore, compared with 86.8\% for conformal factuality with confidence scores from the LLM \cite{feng2025response}.
- 
-\tk{I will move this to an intro section when I've written it but keeping here for now
-
-However, one key limiation remains. The subclaims can only be scored on what was actually retrieved, and the documents are retrieved with the question before the answer is written, so that valid subclaims may still end up being removed due to a lack of evidence. This problem is of particular concern when the answer to a user's question is spread across multiple documents and linked via a \emph{bridge entity}, that is, an entity that is not referred to in the original question. To illustrate this, take the following example query: ``Where was the director of Jaws born?''. Retrieval with this query will likely surface documents such as the article on the film Jaws, and the LLM's own knowledge may correctly identify the director as Steven Spielberg. His biography, however, is unlikely to be retrieved, since nothing in the question points to it. Suppose that the LLM produces two subclaims, $c_1 =$ ``Jaws was directed by Steven Spielberg'' and $c_2 =$ ``Steven Spielberg was born in Cincinnati, Ohio''. Subclaim $c_1$ is similar to the Jaws article and would likely be retained. Subclaim $c_2$ is true, and the LLM states it correctly from its own knowledge, but no retrieved document mentions Spielberg's birthplace, and so its score is low and it would be removed. The filtered answer would then contain $c_1$ but not $c_2$, which is the subclaim that answers the question.
- 
-To address multi-hop questions, Rehman and Yeh \cite{rehman2026conformal} extend the Conformal-RAG methodology to a multi-hop retrieval setting, in which they perform multiple rounds of retrieval. After the first round, an LLM rewrites the query from the question and the evidence found so far, in the hope that bridge entities will be identified and that the accumulated evidence will better cover the specifics of the question. The scoring and the filtering are kept the same as in Conformal-RAG. Their main result is that the guarantee carries over to multi-hop RAG, as stricter levels consistently increase the fraction of answers in which every retained subclaim is supported. At the 95\% level, however, only 4.41\%--31.09\% of the generated subclaims are retained, and only 9.70\%--51.40\% of the answers are non-empty, which means that much of the reliability is obtained by abstaining. 
-% They do not show an improvement over single-hop Conformal-RAG, and they state that their single-hop reference experiment does not support a general comparison between the two.
- 
-There are two reasons why multi-hop retrieval of this kind may not recover the missing evidence. Firstly, the rewritten queries are driven by the question, not by the subclaims, which means that the retrieval has no reason to look for the evidence of a particular subclaim that is failing. Secondly, the score $R(c)$ multiplies by the similarity of each document to the original question. As a result, a document about the bridge entity, such as Spielberg's biography, is penalised even when it is retrieved, as it is not very similar to the question. \tk{Check whether more documents also raise the scores of unsupported subclaims, which would raise the threshold etc.}}
+where the probability is taken over the calibration queries and the new query. Accordingly, with probability at least $1 - \alpha$, the filtered set $F_{\hat{\tau}}(\hat{y} \mid x)$ in \eqref{eq:filter_set} contains no unsupported subclaim. Note that in the special case where no subclaims remain, i.e., $F_{\hat{\tau}}(\hat{y} \mid x) = \emptyset$, the model abstains. Such abstentions are valid under the guarantee \eqref{eq:cf}, since an empty set contains no unsupported subclaim, but they do not answer the user's query. 

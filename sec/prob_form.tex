@@ -2,42 +2,51 @@
 
 \input{figures/system.tex}
 
-In all of the methods given in Section~\ref{sec:background}, the evidence used to guage factuality of the subclaims is retrieved in a single phase before the subclaims are generated. The subclaims themselves are also then only filtered once. The main consequence of this setup is that a true subclaim whose evidence was not retrieved has no way of being recovered and will be removed from the final set. In this work, we seek to alleviate this by allowing the system to consider its current subclaims, and either stop and answer, or retrieve further evidence for the subclaims that it cannot yet support and revise them. 
+In the state-of-the-art reviewed in Section~\ref{sec:background}, the evidence used to guage factuality of the subclaims is retrieved in a single phase before the subclaims are generated. Therefore, a true subclaim whose evidence was not retrieved has no way of being validated, and will be removed from the final set \eqref{eq:filter_set}. In this work, we seek to alleviate this issue by allowing the system to consider its current subclaims, and either stop and answer, or retrieve further evidence for the subclaims that it cannot yet support and revise them. This effectively integrates active RAG \tk{refs} wth conformal factuality \tk{refs} with the aim of producing larger, and thus more informative, certified filtered sets \eqref{eq:filter_set}. Accordingly, we refer to our approach as Active C-RAG (AC-RAG).
 
-% We start by describing such a system by the schema in Figure~\ref{fig:system}, and explain how the methods above can be recovered with specific choices under this schema. 
+As illustrated in Figure~\ref{fig:system}, AC-RAG system answers a query $x$ over rounds $t = 0, 1, \ldots, T$, for a budget $T$ that is fixed in advance, and at round $t$ it holds the subclaims $\hat{y}_t$ and the evidence $D_t$. Round $0$, shown in black, is connected (?) to CF \tk{ref} and C-RAG \tk{ref}, as described in Section~\ref{sec:background}, whereas the rounds $t \geq 1$, shown in blue, are only affected by AC-RAG when reworking its subclaims.
 
-The system answers a query $x$ over rounds $t = 0, 1, \ldots, T$, for a budget $T$ that is fixed in advance, and at round $t$ it holds the subclaims $\hat{y}_t$ and the evidence $D_t$. Round $0$, shown in black, is used by every method described in Section~\ref{sec:background}, whereas the rounds $t \geq 1$, shown in blue, are only reached by our system that reworks its subclaims.
+The system has access to a retriever over a fixed corpus $\mathcal{K}$, and we write $\mathrm{Retrieve}(q)$ for the set of documents that it returns for a retrieval query $q$. Round $0$ starts with the initial retrieval, which maps the query $x$ to the evidence $D_0$. As in multi-hop C-RAG, the initial retrieval may run over several hops. We denote with $D_0$ the union of the documents retrieved over all hops.
 
-Round $0$ starts with the initial retrieval, which maps the query $x$ to the evidence $D_0$. The system has access to a retriever over a fixed corpus $\mathcal{K}$, and we write $\mathrm{Retrieve}(q)$ for the set of documents that it returns for a retrieval query $q$. As in the case of multi-hop RAG, the initial retrieval may run over several hops $h = 0, 1, \ldots$, where at hop $h$ it sends a query $q_h$ to the retriever and receives the documents $\hat{D}_h = \mathrm{Retrieve}(q_h)$. We denote with $D_0$ the union of the documents retrieved over all hops. \tk{explain how the queries $q_h$ are formulated or not important?}
+An LLM $G$ then writes the claim $y = G(x, D_0)$ from the query and the initial retrieved evidence. Subclaim extraction is performed by another LLM that splits $y$ into the subclaims $\hat{y}_0$, as in CF and C-RAG. The evidence $D_0$ is also placed into an evidence store, which holds the evidence $D_t \subseteq \mathcal{K}$ collected up to round $t$.
 
-An LLM $G$ then writes the claim $y = G(x, D_0)$ from the query and the initial retrieved evidence. Subclaim extraction is performed by another LLM $\mathrm{Ext}$ \tk{label this and explain or not?} that splits $y$ into the subclaims $\hat{y}_0 = \mathrm{Ext}(y)$, as in the methods defined in Section~\ref{sec:background}. The evidence $D_0$ is also placed into an evidence store $\mathcal{E}$, which holds the evidence $D_t \subseteq \mathcal{K}$ collected up to round $t$.
+At each round $t$, a subclaim scorer assigns a score $s_t(c \mid x, D_t)$ to every subclaim $c \in \hat{y}_t$ based on the query and the current retrieved evidence $D_t$, and we write $s_t = \{ s(c \mid x, D_t) : c \in \hat{y}_t \}$ for the scores of all subclaims of set $\hat{y}_t$.
 
-At each round $t$, a subclaim scorer $\mathrm{Score}$ assigns a score $s_t(c)$ to every subclaim $c \in \hat{y}_t$ based on the query and the current retrieved evidence $D_t$, and we write $s_t = \mathrm{Score}(x, \hat{y}_t, D_t)$ for the scores of all subclaims of $\hat{y}_t$.
-
-The decision rule $\mathrm{Dec}$ then uses the scores to partition $\hat{y}_t$ into three sets $(K_t, W_t, Z_t) = \mathrm{Dec}(s_t)$, where $K_t$ contains the subclaims that are retained, $W_t$ the subclaims that are reworked, and $Z_t$ the subclaims that are removed. It also decides whether to stop at the current round $t$, and we write $t^* \leq T$ for the round at which it does, and which may depend on the data. When it stops, the system passes the remaining subclaims $\hat{y}_{t^*} = K_{t^*} \cup W_{t^*}$, together with $D_{t^*}$ and $s_{t^*}$, to the final selection. A set of labelled queries, for which the labels $a(c)$ are known, is also available to calibrate both the decision and the final selection before the system is used to answer new queries, as shown by the dashed arrows in Figure~\ref{fig:system}.
-
-Whilst the system has not stopped, it reworks the subclaims of $W_t$ in the rounds shown in blue. For each subclaim $c \in W_t$, query generation $\mathrm{Query}$ writes a retrieval query $q_t(c) = \mathrm{Query}(x, c, D_t)$ from the query, the subclaim and the evidence, and the documents returned for these queries are added to the evidence store,
+The scores $s_t$ are used by a decision block to partition the set $\hat{y}_t$ into three subsets
 \begin{equation}
-  D_{t+1} = D_t \cup \bigcup_{c \in W_t} \mathrm{Retrieve}\bigl(q_t(c)\bigr).
+  (k_t, w_t, z_t) = \mathrm{Dec}(s_t)
+\end{equation}
+where subset $k_t$ contains the subclaims that are kept, $w_t$ the subclaims that are to be reworked, and $z_t$ the subclaims that are removed. It also decides whether to stop at the current round $t$, returning the current non-rejected subclaims
+\begin{equation}
+  \hat{y}_{t^*} = k_{t^*} \cup w_{t^*}
+\end{equation}
+where $t^{*}$ is the stopping time, to the fnal filtering step, together with $D_{t^*}$ and $s_{t^*}$, to the final selection.
+
+Whilst the system has not stopped, it reworks the subclaims in subset $w_t$ in the rounds shown in blue in Figure~\ref{fig:system}. To this end, for each subclaim $c \in w_t$, a retrieval query $qt = q_t(c)(x, c, D_t)$ is produced as function of the input query, the subclaim and the evidence, and the documents returned for these queries are added to the evidence store as
+\begin{equation}
+  D_{t+1} = D_t \cup \bigcup_{c \in w_t} \mathrm{Retrieve}\bigl(q_t\bigr).
   \label{eq:store}
 \end{equation}
-Subclaim revision $\mathrm{Rev}$ then gives the subclaims of the next round, $\hat{y}_{t+1} = \mathrm{Rev}(x, K_t, W_t, D_{t+1})$, in which the subclaims of $K_t$ remain the same, each subclaim of $W_t$ is rewritten given the new evidence or left unchanged. New subclaims may also be added, while the subclaims of $Z_t$ are removed. The next round  begins from the subclaim scoring of the updated subclaims $\hat{y}_{t+1}$.
-% Each of these choices, as well as the decision to stop, may depend on $x$ and on everything observed in earlier rounds.
+The subclaim revision block then outputs the modifed subclaims for the next round
+% \begin{equation}
+%   \hat{y}_{t+1} = \mathrm{Rev}(x, k_t, w_t, D_{t+1}) 
+% \end{equation}
+\begin{equation}
+  \hat{y}_{t+1} = k_t \cup \mathrm{Rev}(x, w_t, D_{t+1}) 
+\end{equation}
+in which each subclaim of $w_t$ is rewritten given the new evidence \tk{or left unchanged -- plausible that no rewriting is necessary if we retrieve the correct evidence (i.e. Steven Spielberg's biography)}. New subclaims may also be added. The next round  begins from the subclaim scoring of the updated subclaims $\hat{y}_{t+1}$.
+\tk{I am fine removing $k_t$ from the parameters of the revision algorithm is fine, but it means that we forego the opportunity to update already verified claims. For example, I had in mind that if further retrieval might surface new information such as a month to go along with a year of an event already included in the current subclaim, then we could update it. This has statistical implications, but it'd be good to know if you think it's worth keeping this option open.}
 
-Finally, the final selection filter $\mathrm{Sel}$ returns the answer $\hat{y}_{\mathrm{final}} = \mathrm{Sel}(\hat{y}_{t^*}, D_{t^*}, s_{t^*})$ from the remaining subclaims, with $\hat{y}_{\mathrm{final}} \subseteq \hat{y}_{t^*}$.
-
-In all three of the prior methods defined in Section~\ref{sec:background}, the decision keeps every subclaim, i.e., $K_0 = \hat{y}_0$ and $W_0 = Z_0 = \emptyset$, and the system therefore stops at $t^* = 0$. The final selection is then the filter $F_{\hat{\tau}}$ given in \eqref{eq:filter_set} applied to the subclaims of round $0$, i.e., $\hat{y}_{\mathrm{final}} = F_{\hat{\tau}}(\hat{y}_0)$, with $\hat{\tau}$ calibrated on the labelled queries. The three methods differ only in the initial retrieval and in the subclaim scorer. Conformal factuality uses no retrieval, thus $D_0 = \emptyset$, the LLM writes $y$ from $x$ alone, and $s_0(c)$ is the score $s(c)$ obtained from the LLM. Conformal-RAG uses a single hop with $q_0 = x$, and the method of Rehman and Yeh uses several hops, in which each query $q_h$ is rewritten by an LLM from $x$ and the documents received in earlier hops \tk{worth being more precise here?}. Both use the relevance score $R(c)$ of \eqref{eq:crag_score} on $D_0$ as $s_0(c)$. 
-
-There also exists adaptive retrieval methods that retrieve during or after generation, which corresponds to the rounds $t \geq 1$, although they revise sentences of the answer rather than subclaims directly. For example, FLARE \cite{jiang2023active} retrieves whenever the next sentence of the answer contains low-confidence tokens and regenerates that sentence, and RARR \cite{gao2023rarr} retrieves evidence for a finished answer and revises the parts that the evidence does not support. Reworking subclaims in this way has therefore been considered before, but neither method gives a guarantee of the form \eqref{eq:cf}. \tk{This ought to go in the background but then it wouldn't be fair to refer to the diagram in a general sense as an augmentation of \emph{all} the methods in the background section. What do you thinl?}
+Finally, the returned filtered set is given by $\hat{y} = F_{\hat{\tau}}(\hat{y}_{t^*})$, where the threshold $\hat{\tau}$ is calibrated using calibration data as in CF and C-RAG via \eqref{eq:filter_set}. The three methods differ only in the initial retrieval and in the subclaim scorer. Conformal factuality uses no retrieval, thus $D_0 = \emptyset$, the LLM writes $y$ from $x$ alone, and $s_0(c)$ is the score $s(c)$ obtained from the LLM. Conformal-RAG uses a single hop with $q_0 = x$, and the method of Rehman and Yeh uses several hops, in which each query $q_h$ is rewritten by an LLM from $x$ and the documents received in earlier hops. \tk{Better to return to the choice of scores later: Both use the relevance score $R(c)$ of \eqref{eq:crag_score} on $D_0$ as $s_0(c)$.} 
 
 The answer that the system finally returns must still satisfy the guarantee \eqref{eq:cf}, that is,
 \begin{equation}
-  \Pr\bigl[\, y^* \Rightarrow c \ \text{for every} \ c \in \hat{y}_{\mathrm{final}} \,\bigr] \geq 1 - \alpha,
+  \Pr\bigl[\, y^* \Rightarrow c \ \text{for every} \ c \in \hat{y} \,\bigr] \geq 1 - \alpha,
   \label{eq:cf_seq}
 \end{equation}
 where the probability is now also taken over the choices that the system makes in each round. Since abstaining always satisfies the guarantee, we measure how useful the system is by the expected number of supported subclaims in its answer,
 \begin{equation}
-  U = \mathbb{E}\Bigl[ \sum_{c \in \hat{y}_{\mathrm{final}}} a(c) \Bigr],
+  U = \mathbb{E}\Bigl[ \sum_{c \in \hat{y}} a(c) \Bigr],
   \label{eq:usefulness}
 \end{equation}
 and the goal is to ensure that $U$ as large as possible while keeping the guarantee \eqref{eq:cf_seq}.
