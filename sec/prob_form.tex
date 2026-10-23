@@ -22,7 +22,7 @@ where subset $k_t$ contains the subclaims that are kept, $w_t$ the subclaims tha
 \end{equation}
 where $t^{*}$ is the stopping time, to the fnal filtering step, together with $D_{t^*}$ and $s_{t^*}$, to the final selection.
 
-Whilst the system has not stopped, it reworks the subclaims in subset $w_t$ in the rounds shown in blue in Figure~\ref{fig:system}. To this end, for each subclaim $c \in w_t$, a retrieval query $qt = q_t(c)(x, c, D_t)$ is produced as function of the input query, the subclaim and the evidence, and the documents returned for these queries are added to the evidence store as
+Whilst the system has not stopped, it reworks the subclaims in subset $w_t$ in the rounds shown in blue in Figure~\ref{fig:system}. To this end, for each subclaim $c \in w_t$, a retrieval query $qt = q_t(x, c, D_t)$ is produced as function of the input query, the subclaim and the evidence, and the documents returned for these queries are added to the evidence store as
 \begin{equation}
   D_{t+1} = D_t \cup \bigcup_{c \in w_t} \mathrm{Retrieve}\bigl(q_t\bigr).
   \label{eq:store}
