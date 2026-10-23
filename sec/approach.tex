@@ -1,23 +1,27 @@
 \section{Active C-RAG}\label{sec:approach}
 
-\subsection{Prior Art}\label{sec:prior_schema}
+In this section we describe the implementation of the schema given in Section~\ref{sec:prob_form}. We begin by discussing how the state-of-the-art instantiates this schema, and then provide our specific implementation for each of system components in Figure~\ref{fig:system}.
 
-In the schema of Figure~\ref{fig:system}, CF and C-RAG only use round $0$. CF performs no retrieval, so that $D_0 = \emptyset$, the LLM $G$ writes the claim $y$ from the query $x$ alone, and the subclaim scorer returns the confidence score $s(c \mid x)$ of the model. C-RAG instead retrieves $D_0$ with the query $x$, and its subclaim scorer returns the score $s(c \mid x, D_0)$ in \eqref{eq:crag_score}. In both methods, the decision block keeps every subclaim, i.e., $k_0 = \hat{y}_0$ and $w_0 = z_0 = \emptyset$, the system stops at $t^* = 0$, and the returned set is $\hat{y} = F_{\hat{\tau}}(\hat{y}_0)$.
+\subsection{Prior Art}\label{subsec:prior_schema}
 
-In practice, the retrieved documents are short passages, such as chunks of an article or single sentences, and we refer to them as passages. The score \eqref{eq:crag_score} has two shortcomings when the answer to a query relies on a bridge entity, that is, an entity that is not referred to in the query. Firstly, the cosine similarity $\mathrm{sim}(c, d)$ measures how close a subclaim and a passage are in topic, not whether the passage supports the subclaim. Secondly, the factor $\mathrm{sim}(x, d)$ penalises passages about the bridge entity, as these are not very similar to the query. To illustrate this, consider the query ``Where was the director of Jaws born?'', for which the LLM produces the subclaims $c_1 =$ ``Jaws was directed by Steven Spielberg'' and $c_2 =$ ``Steven Spielberg was born in Cincinnati, Ohio''. \tk{I like this example and perhaps I will move it to the intro and refer back to it here}Retrieval with $x$ will likely surface the article on the film Jaws, which supports $c_1$, but not Spielberg's biography, since nothing in the query points to it. As no passage of $D_0$ supports $c_2$, its score is low and $F_{\hat{\tau}}$ removes it, so that the returned set contains the bridge $c_1$ but not $c_2$, which is the subclaim that answers the query. Note that even if Spielberg's biography were retrieved, its low similarity to $x$ would keep the score of $c_2$ low.
+In the schema of Figure~\ref{fig:system}, CF and C-RAG only use round $0$. CF performs no retrieval, so that $D_0 = \emptyset$, the LLM $G$ writes the claim $y$ from the query $x$ alone, and the subclaim scorer returns the confidence score $s(c \mid x)$ of the model. C-RAG instead retrieves $D_0$ with the query $x$, and its subclaim scorer returns the score $s(c \mid x, D_0)$ as in \eqref{eq:crag_score}. Multi-hop C-RAG~\cite{rehman2026conformal} runs the initial retrieval over several hops, in which each query is rewritten by an LLM from $x$ and the evidence found in earlier hops, and keeps the score \eqref{eq:crag_score}. In all three methods, the decision block keeps every subclaim, i.e., $k_0 = \hat{y}_0$ and $w_0 = z_0 = \emptyset$, the system stops at $t^* = 0$, and the returned set is $\hat{y} = F_{\hat{\tau}}(\hat{y}_0)$.
 
-\subsection{Base Pipeline}\label{sec:base}
+Active RAG methods also use the rounds $t \geq 1$. FLARE~\cite{jiang2023active} retrieves whenever the next sentence of the answer contains low-confidence tokens and regenerates that sentence, and RARR~\cite{gao2023rarr} retrieves evidence for a finished answer and revises the parts that the evidence does not support. In terms of Figure~\ref{fig:system}, these methods decide heuristically which parts of the answer to rework, revise sentences rather than subclaims, and have no calibrated final filtering step, and thus provide no guarantee of the form \eqref{eq:cf}.
 
-AC-RAG uses round $0$ of C-RAG unchanged, i.e., the initial retrieval, the LLM $G$ and the subclaim extraction, so that with $T = 0$ it differs from C-RAG only in the subclaim scorer. The subclaims of $\hat{y}_0$ are kept in the order $c_1, c_2, \ldots$ in which they appear in $y$, as an answer typically states a bridge subclaim, such as $c_1$, before the subclaims that rely on it.
+In the conformal methods, $t^* = 0$, so that a supported subclaim for which $D_0$ contains no supporting document, such as $c_2$ in the example of Section~\ref{sec:intro}\tk{note still reworking the intro}, receives a low score and is removed by $F_{\hat{\tau}}$. Active RAG methods can retrieve the missing evidence, but without a guarantee. AC-RAG combines the rework rounds of active RAG with the calibrated decisions and final filtering step of CF and C-RAG.
 
-\subsection{Subclaim Scorer}\label{sec:scorer}
+\subsection{Base Pipeline}\label{subsec:base}
 
-To score whether the evidence supports a subclaim, we replace \eqref{eq:crag_score} by a natural language inference (NLI) model. For a passage $d$ and a subclaim $c$, the NLI model returns the probabilities $p_{\mathrm{ent}}(d, c)$, $p_{\mathrm{con}}(d, c)$ and $p_{\mathrm{neu}}(d, c)$ that $d$ entails $c$, contradicts $c$, or neither, which sum to $1$. The scorer then assigns two scores to each subclaim $c \in \hat{y}_t$,
+AC-RAG uses round $0$ of (multi-hop) C-RAG, unchanged, i.e., the initial retrieval, the LLM $G$ and the subclaim extraction, so that with $T = 0$, the system differs from these methods only in the subclaim scorer. The subclaims of $\hat{y}_0$ are kept in the order $c_1, c_2, \ldots$ in which they appear in $y$, as an answer typically states a bridge subclaim, such as $c_1$, before the subclaims that rely on it. \tk{The ordering of the subclaims may be kind of important, so it's worth raising this now in case we need to discuss the ordering further.}
+
+\subsection{Subclaim Scorer}\label{subsec:scorer}
+
+In practice, the retrieved documents are short passages, such as chunks of an article or single sentences, and we refer to them as passages. The score \eqref{eq:crag_score} has two key issues when the answer to a query relies on a bridge entity. Firstly, the cosine similarity $\mathrm{sim}(c, d)$ measures how close a subclaim and a passage are in topic, not whether the passage supports the subclaim. Secondly, as discussed in Section~\ref{sec:intro}, the factor $\mathrm{sim}(x, d)$ penalises passages about the bridge entity, as these are not very similar to the query. Hence, the score of $c_2$ would remain low even if Spielberg's biography were retrieved. To score whether the evidence supports a subclaim, we therefore replace \eqref{eq:crag_score} by a natural language inference (NLI) model. For a passage $d$ and a subclaim $c$, the NLI model returns the probabilities $p_{\mathrm{ent}}(d, c)$, $p_{\mathrm{con}}(d, c)$ and $p_{\mathrm{neu}}(d, c)$ that $d$ entails $c$, contradicts $c$, or neither, which sum to $1$. The scorer then assigns two scores to each subclaim $c \in \hat{y}_t$,
 \begin{equation}
   s^{\mathrm{ent}}_t(c \mid x, D_t) = \max_{d \in D_t} p_{\mathrm{ent}}(d, c), \qquad s^{\mathrm{con}}_t(c \mid x, D_t) = \max_{d \in D_t} p_{\mathrm{con}}(d, c),
   \label{eq:nli_score}
 \end{equation}
-so that $s_t$ now contains several scores for each subclaim. The entailment score $s^{\mathrm{ent}}_t$ is high only if some passage entails $c$, and it does not depend on how the query $x$ is worded. Spielberg's biography, for instance, clearly entails $c_2$, although it is not similar to $x$. The contradiction score $s^{\mathrm{con}}_t$ is high if some passage contradicts $c$, and it is only used by the decision block to remove subclaims. Entailment-based scorers have also been found to match or outperform LLM confidence scores for conformal factuality in RAG, at a far lower computational cost \cite{chen2026conformal}.
+such that $s_t$ now contains several scores for each subclaim. The entailment score $s^{\mathrm{ent}}_t$ is high only if some passage entails $c$, and it does not depend on how the query $x$ is worded. Spielberg's biography, for instance, clearly entails $c_2$, although it is not similar to $x$. The contradiction score $s^{\mathrm{con}}_t$ is high if some passage contradicts $c$, and it is only used by the decision block to remove subclaims. Entailment-based scorers have also been found to match or outperform LLM confidence scores for conformal factuality in RAG, at a far lower computational cost \cite{chen2026conformal}.
 
 The scorer also returns the evidence that each round adds for each subclaim. For a subclaim $c$, let $N_t(c) \subseteq D_t$ denote the passages of $D_t$ that have not been scored against $c$ in earlier rounds. The new evidence for $c$ at round $t$ is then the best of these passages,
 \begin{equation}
@@ -26,7 +30,7 @@ The scorer also returns the evidence that each round adds for each subclaim. For
 \end{equation}
 which is only defined when $N_t(c) \neq \emptyset$. A passage therefore contributes to $p_t(c)$ at most once for each subclaim, including a passage that was retrieved for a different subclaim. \tk{I think this is how we should treat this. Every round is a new bet against the new evidence that is retrieved so that the e-process only considers a piece of evidence once. Does this make sense?}
 
-\subsection{Decision Block}\label{sec:decision}
+\subsection{Decision Block}\label{subsec:decision}
 
 Taking the null hypothesis $H_c$ for each subclaim $c$ to be that $c$ is unsupported, i.e., $a(c \mid x) = 0$, accepting $c$ as supported is equivalent to rejecting $H_c$, which we call certifying $c$. The guarantee \eqref{eq:cf_seq} therefore bounds the family-wise error rate (FWER) over the subclaims of a single answer, i.e., the probability of certifying at least one unsupported subclaim. Since the decision block is applied at every round, and the revision creates new subclaims from the evidence of earlier rounds, both the hypotheses and the number of tests depend on the data.
 
@@ -35,8 +39,9 @@ The decision block first removes the subclaims that the evidence contradicts. To
   z_t = \bigl\{ c \in \hat{y}_t \setminus k_{t-1} : s^{\mathrm{con}}_t(c \mid x, D_t) > 1/2 \ \text{and} \ s^{\mathrm{ent}}_t(c \mid x, D_t) \leq 1/2 \bigr\},
   \label{eq:removal}
 \end{equation}
-with $k_{t-1} = \emptyset$ for $t = 0$. Since the three probabilities of the NLI model sum to $1$, a probability above $1/2$ is the largest of the three, so that a passage with $p_{\mathrm{con}}(d, c) > 1/2$ contradicts $c$, and $s^{\mathrm{ent}}_t(c \mid x, D_t) \leq 1/2$ means that no passage entails $c$ with a probability above $1/2$. Removal requires no calibration, as a removed subclaim is never certified, and so cannot lead to an error in \eqref{eq:cf_seq}. It may, however, reduce the usefulness \eqref{eq:usefulness} when a supported subclaim is removed. Removed subclaims are not reintroduced by the revision block.
+with $k_{t-1} = \emptyset$ for $t = 0$. Since the three probabilities of the NLI model sum to $1$, a probability above $1/2$ is the largest of the three, so that a passage with $p_{\mathrm{con}}(d, c) > 1/2$ contradicts $c$, and $s^{\mathrm{ent}}_t(c \mid x, D_t) \leq 1/2$ means that no passage entails $c$ with a probability above $1/2$. We note that removal requires no calibration, as a removed subclaim is never certified, and thus cannot lead to an error in \eqref{eq:cf_seq}.
 
+\tk{HERE}
 For the remaining subclaims, the decision block accumulates evidence over the rounds with an e-process \cite{ramdas2023game}. Its validity rests on a bound on how high the new evidence for an unsupported subclaim scores. Specifically, we require a constant $\bar{p}_{\mathrm{null}} \in (0, 1)$ such that, for every subclaim $c$ with $a(c \mid x) = 0$ and every round $t$ at which $p_t(c)$ is defined,
 \begin{equation}
   \mathbb{E}\bigl[\, p_t(c) \mid \mathcal{F}_{t-1} \,\bigr] \leq \bar{p}_{\mathrm{null}},
@@ -65,17 +70,17 @@ The decision block stops at the round
 \end{equation}
 that is, when every subclaim has been certified or removed, when the rework returns no new passages, so that no further evidence can be gained, or when the budget of $T$ rounds is used up. By Ville's inequality, any stopping rule preserves the validity of the e-processes, and \eqref{eq:stop} only determines how much evidence is collected.
 
-\subsection{Query Generation}\label{sec:query}
+\subsection{Query Generation}\label{subsec:query}
 
-For each subclaim $c \in w_t$, an LLM writes the retrieval query $q_t(c)$ from the query $x$, the subclaim $c$ and the evidence $D_t$, so that the query can make use of a bridge entity identified in earlier rounds, and the returned passages are added to the evidence store as in \eqref{eq:store}. In the example, $c_2$ yields a query such as ``Steven Spielberg birthplace'', which retrieves his biography. As a simpler alternative, the subclaim $c$ itself can be used as the retrieval query. In multi-hop C-RAG, the queries are written from the query $x$ and the evidence found so far, so that the retrieval has no reason to look for the evidence of a particular subclaim, whereas the queries of AC-RAG are written from the subclaims that are not yet certified.
+For each subclaim $c \in w_t$, an LLM writes the retrieval query $q_t(c)$ from the query $x$, the subclaim $c$ and the evidence $D_t$, so that the query can make use of a bridge entity identified in earlier rounds, and the returned passages are added to the evidence store as in \eqref{eq:store}. In the example, $c_2$ yields a query such as ``Steven Spielberg birthplace'', which retrieves his biography. As a simpler alternative, the subclaim $c$ itself can be used as the retrieval query. Unlike in multi-hop C-RAG, whose queries are driven by the query $x$ as discussed in Section~\ref{sec:intro}, the queries of AC-RAG are written from the subclaims that are not yet certified.
 
-\subsection{Subclaim Revision}\label{sec:revision}
+\subsection{Subclaim Revision}\label{subsec:revision}
 
 The revision block keeps the certified subclaims $k_t$ unchanged, and, for each subclaim $c \in w_t$, either leaves $c$ unchanged or rewrites it given the new evidence. It may also add new subclaims that the new evidence supports. A rewritten or added subclaim is a new hypothesis, and it is placed after the existing subclaims in the order, with an e-process that starts at $1$. A refinement of a certified subclaim, such as the month of an event whose year is already certified, is also added as a new subclaim, so that the certified subclaim keeps its status. In the example, $c_2$ needs no rewriting, as Spielberg's biography entails it as it stands, so that $c_2$ keeps its e-process, which grows with the new evidence and allows $c_2$ to be certified once $c_1$ is.
 
 Under FST, a subclaim that is rewritten counts as not certified at its position, by \eqref{eq:certify}. Revisions therefore do not help the subclaims after this position to be certified by the e-processes, but they can still increase the number of supported subclaims that pass the final filtering step.
 
-\subsection{Final Filtering Step}\label{sec:final}
+\subsection{Final Filtering Step}\label{subsec:final}
 
 The returned set can be obtained in two ways, which we state side by side.
 
@@ -91,7 +96,7 @@ The second is to apply the filter \eqref{eq:filter_set} to the remaining subclai
 
 It would be great to get your input on some of these
 \begin{enumerate}[leftmargin=*]
-  \item Is the argument in Section~\ref{sec:final} correct that the evidence collected for a subclaim before it comes under test can also be used, provided that its e-process starts when the subclaim is created and new subclaims are placed after the existing ones?
+  % \item Is the argument in Section~\ref{sec:final} correct that the evidence collected for a subclaim before it comes under test can also be used, provided that its e-process starts when the subclaim is created and new subclaims are placed after the existing ones?
   \item How should subclaims that do not depend on one another be ordered, given that one which cannot be certified early prevents every later subclaim from being certified, even if those are well supported? An alternative to FST is to give each subclaim $c$ a weight $\omega_c$ when it is created, with $\sum_c \omega_c \leq 1$, and to certify $c$ once $M_t(c) \geq 1/(\alpha \omega_c)$. By Ville's inequality and a union bound, this also controls the FWER at level $\alpha$, without any subclaim blocking another, at the cost of a higher threshold for each subclaim.
   \item Should part of $\alpha$ be reserved so that certification can continue after a subclaim is removed or rewritten, as in the online fallback procedure of \cite{tian2021online}?
   \item How should $\bar{p}_{\mathrm{null}}$ be estimated, and is a guarantee that holds with high probability over the pilot set acceptable? Can \eqref{eq:null_bound} be expected to hold given each history, or only on average?

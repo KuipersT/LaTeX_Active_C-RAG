@@ -1,10 +1,10 @@
-\section{Problem Formulation}
+\section{Problem Formulation}\label{sec:prob_form}
 
 \input{figures/system.tex}
 
 In the state-of-the-art reviewed in Section~\ref{sec:background}, the evidence used to guage factuality of the subclaims is retrieved in a single phase before the subclaims are generated. Therefore, a true subclaim whose evidence was not retrieved has no way of being validated, and will be removed from the final set \eqref{eq:filter_set}. In this work, we seek to alleviate this issue by allowing the system to consider its current subclaims, and either stop and answer, or retrieve further evidence for the subclaims that it cannot yet support and revise them. This effectively integrates active RAG~\cite{jiang2023active,asai2024selfrag} wth conformal factuality~\cite{mohri2024language,cherian2024large} with the aim of producing larger, and thus more informative, certified filtered sets \eqref{eq:filter_set}. Accordingly, we refer to our approach as Active C-RAG (AC-RAG).
 
-As illustrated in Figure~\ref{fig:system}, AC-RAG system answers a query $x$ over rounds $t = 0, 1, \ldots, T$, for a budget $T$ that is fixed in advance, and at round $t$ it holds the subclaims $\hat{y}_t$ and the evidence $D_t$. Round $0$, shown in black, is connected (?) to CF~\cite{mohri2024language} and C-RAG~\cite{feng2025response}, as described in Section~\ref{sec:background}, whereas the rounds $t \geq 1$, shown in blue, are only affected by AC-RAG when reworking its subclaims.
+As illustrated in Figure~\ref{fig:system}, AC-RAG system answers a query $x$ over rounds $t = 0, 1, \ldots, T$, for a budget $T$ that is fixed in advance, and at round $t$ it holds the subclaims $\hat{y}_t$ and the evidence $D_t$. Round $0$, shown in black, is connected to CF~\cite{mohri2024language} and C-RAG~\cite{feng2025response}, as described in Section~\ref{sec:background}, whereas the rounds $t \geq 1$, shown in blue, are only affected by AC-RAG when reworking its subclaims.
 
 The system has access to a retriever over a fixed corpus $\mathcal{K}$, and we write $\mathrm{Retrieve}(q)$ for the set of documents that it returns for a retrieval query $q$. Round $0$ starts with the initial retrieval, which maps the query $x$ to the evidence $D_0$. As in multi-hop C-RAG, the initial retrieval may run over several hops. We denote with $D_0$ the union of the documents retrieved over all hops.
 
