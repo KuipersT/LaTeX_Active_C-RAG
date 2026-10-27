@@ -22,6 +22,8 @@ Conformal-RAG (C-RAG)~\cite{feng2025response} uses a RAG pipeline that retrieves
 \end{equation}
 where $\mathrm{sim}$ is the cosine similarity between embeddings and $[\cdot]_+ = \max(0, \cdot)$. The score is high when some retrieved document is both relevant to the question and similar to the subclaim. This score results in a selection of subclaims via \eqref{eq:filter_set} that is grounded in retrieved evidence rather than in the confidence of the model.
 
+Multi-hop C-RAG~\cite{rehman2026conformal} extends C-RAG to queries whose answer is spread across several documents, by running the retrieval over several hops. After the first hop, an LLM rewrites the retrieval query from the query $x$ and the documents retrieved so far, and $D_0$ is the union of the documents retrieved over all hops. The score \eqref{eq:crag_score} and the filter \eqref{eq:filter_set} remain the same as in C-RAG.
+
 Leveraging methodology inspired by split-conformal prediction~\cite{vovk2005algorithmic,angelopoulos2023conformal}, CF and Conformal-RAG choose the threshold $\hat{\tau}$ using a set of $n$ labelled queries $(x, y^{*})$. For a new query that is exchangeable with the calibration queries, e.g. for independent and identically distributed (i.i.d.) data, this gives the guarantee
 \begin{equation}
   \Pr\bigl[\, y^* \Rightarrow c \ \text{for all} \ c \in F_{\hat{\tau}}(\hat{y} \mid x) \,\bigr] \geq 1 - \alpha,

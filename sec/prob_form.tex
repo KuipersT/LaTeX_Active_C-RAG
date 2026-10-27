@@ -2,9 +2,9 @@
 
 \input{figures/system.tex}
 
-In the state-of-the-art reviewed in Section~\ref{sec:background}, the evidence used to guage factuality of the subclaims is retrieved in a single phase before the subclaims are generated. Therefore, a true subclaim whose evidence was not retrieved has no way of being validated, and will be removed from the final set \eqref{eq:filter_set}. In this work, we seek to alleviate this issue by allowing the system to consider its current subclaims, and either stop and answer, or retrieve further evidence for the subclaims that it cannot yet support and revise them. This effectively integrates active RAG~\cite{jiang2023active,asai2024selfrag} wth conformal factuality~\cite{mohri2024language,cherian2024large} with the aim of producing larger, and thus more informative, certified filtered sets \eqref{eq:filter_set}. Accordingly, we refer to our approach as Active C-RAG (AC-RAG).
+In the state-of-the-art reviewed in Section~\ref{sec:background}, the evidence used to guage factuality of the subclaims is retrieved in a single phase before the subclaims are generated. Therefore, a true subclaim whose evidence was not retrieved has no way of being validated, and will be removed from the final set \eqref{eq:filter_set}. In this work, we seek to alleviate this issue by allowing the system to consider its current subclaims, and either stop and answer, or retrieve further evidence for the subclaims that it cannot yet support and revise them. This effectively integrates active RAG~\cite{jiang2023active,asai2024selfrag} with conformal factuality~\cite{mohri2024language,cherian2024large} with the aim of producing larger, and thus more informative, certified filtered sets \eqref{eq:filter_set}. Accordingly, we refer to our approach as Active C-RAG (AC-RAG).
 
-As illustrated in Figure~\ref{fig:system}, AC-RAG system answers a query $x$ over rounds $t = 0, 1, \ldots, T$, for a budget $T$ that is fixed in advance, and at round $t$ it holds the subclaims $\hat{y}_t$ and the evidence $D_t$. Round $0$, shown in black, is connected to CF~\cite{mohri2024language} and C-RAG~\cite{feng2025response}, as described in Section~\ref{sec:background}, whereas the rounds $t \geq 1$, shown in blue, are only affected by AC-RAG when reworking its subclaims.
+As illustrated in Figure~\ref{fig:system}, the AC-RAG system answers a query $x$ over rounds $t = 0, 1, \ldots, T$, for a budget $T$ that is fixed in advance, and at round $t$ it holds the subclaims $\hat{y}_t$ and the evidence $D_t$. Round $0$, shown in black, is connected to CF~\cite{mohri2024language} and C-RAG~\cite{feng2025response}, as described in Section~\ref{sec:background}, whereas the rounds $t \geq 1$, shown in blue, are only affected by AC-RAG when reworking its subclaims.
 
 The system has access to a retriever over a fixed corpus $\mathcal{K}$, and we write $\mathrm{Retrieve}(q)$ for the set of documents that it returns for a retrieval query $q$. Round $0$ starts with the initial retrieval, which maps the query $x$ to the evidence $D_0$. As in multi-hop C-RAG, the initial retrieval may run over several hops. We denote with $D_0$ the union of the documents retrieved over all hops.
 
@@ -16,18 +16,18 @@ The scores $s_t$ are used by a decision block to partition the set $\hat{y}_t$ i
 \begin{equation}
   (k_t, w_t, z_t) = \mathrm{Dec}(s_t)
 \end{equation}
-where subset $k_t$ contains the subclaims that are kept, $w_t$ the subclaims that are to be reworked, and $z_t$ the subclaims that are removed. It also decides whether to stop at the current round $t$, returning the current non-rejected subclaims
+where subset $k_t$ contains the subclaims that are kept, $w_t$ the subclaims that are to be reworked, and $z_t$ the subclaims that are removed. It also decides whether to stop at the current round $t$, returning the current (non-removed) subclaims
 \begin{equation}
   \hat{y}_{t^*} = k_{t^*} \cup w_{t^*}
 \end{equation}
-where $t^{*}$ is the stopping time, to the fnal filtering step, together with $D_{t^*}$ and $s_{t^*}$, to the final selection.
+where $t^{*}$ is the stopping time, together with $D_{t^*}$ and $s_{t^*}$, to the final filtering step. Note that the decision block only steers the loop, and the guarantee of the system is obtained by the final filtering step, as in CF and C-RAG.
 
-Whilst the system has not stopped, it reworks the subclaims in subset $w_t$ in the rounds shown in blue in Figure~\ref{fig:system}. To this end, for each subclaim $c \in w_t$, a retrieval query $qt = q_t(x, c, D_t)$ is produced as function of the input query, the subclaim and the evidence, and the documents returned for these queries are added to the evidence store as
+Whilst the system has not stopped, it reworks the subclaims in subset $w_t$ in the rounds shown in blue in Figure~\ref{fig:system}. To this end, for each subclaim $c \in w_t$, a retrieval query $q_t(x, c, D_t)$ is produced as function of the input query, the subclaim and the evidence, and the documents returned for these queries are added to the evidence store as
 \begin{equation}
-  D_{t+1} = D_t \cup \bigcup_{c \in w_t} \mathrm{Retrieve}\bigl(q_t\bigr).
+  D_{t+1} = D_t \cup \bigcup_{c \in w_t} \mathrm{Retrieve}\bigl(q_t(x, c, D_t)\bigr).
   \label{eq:store}
 \end{equation}
-The subclaim revision block then outputs the modifed subclaims for the next round
+The subclaim revision block then outputs the modified subclaims for the next round
 % \begin{equation}
 %   \hat{y}_{t+1} = \mathrm{Rev}(x, k_t, w_t, D_{t+1}) 
 % \end{equation}
@@ -39,7 +39,7 @@ in which each subclaim of $w_t$ is rewritten given the new evidence.
 New subclaims may also be added. The next round  begins from the subclaim scoring of the updated subclaims $\hat{y}_{t+1}$.
 % \tk{I am fine removing $k_t$ from the parameters of the revision algorithm is fine, but it means that we forego the opportunity to update already verified claims. For example, I had in mind that if further retrieval might surface new information such as a month to go along with a year of an event already included in the current subclaim, then we could update it. This has statistical implications, but it'd be good to know if you think it's worth keeping this option open.}
 
-Finally, the returned filtered set is given by $\hat{y} = F_{\hat{\tau}}(\hat{y}_{t^*})$, where the threshold $\hat{\tau}$ is calibrated using calibration data as in CF and C-RAG via \eqref{eq:filter_set}. 
+Finally, the returned filtered set is given by $\hat{y} = F_{\hat{\tau}}(\hat{y}_{t^*})$, i.e., the filter \eqref{eq:filter_set} with the score $s(c \mid x)$ replaced by a score computed at round $t^*$, where the threshold $\hat{\tau}$ is calibrated as in CF and C-RAG, but on calibration queries that have each been processed by the whole loop.
 
 The answer that the system finally returns must still satisfy the guarantee \eqref{eq:cf}, that is,
 \begin{equation}
@@ -48,7 +48,7 @@ The answer that the system finally returns must still satisfy the guarantee \eqr
 \end{equation}
 where the probability is now also taken over the choices that the system makes in each round. Since abstaining always satisfies the guarantee, we measure how useful the system is by the expected number of supported subclaims in its answer,
 \begin{equation}
-  U = \mathbb{E}\Bigl[ \sum_{c \in \hat{y}} a(c) \Bigr],
+  U = \mathbb{E}\Bigl[ \sum_{c \in \hat{y}} a(c \mid x) \Bigr],
   \label{eq:usefulness}
 \end{equation}
-and the goal is to ensure that $U$ as large as possible while keeping the guarantee \eqref{eq:cf_seq}.
+and the goal is to ensure that $U$ is as large as possible while keeping the guarantee \eqref{eq:cf_seq}.
