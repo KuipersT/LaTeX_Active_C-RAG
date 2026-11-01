@@ -1,7 +1,6 @@
 \section{Background: Conformal Retrieval-Augmented Generation}\label{sec:background}
  
-% The responses that a large language model (LLM) produces to a user's query, $x$, may be, in part or in full, factually incorrect. 
-An LLM generates a claim $y$ in response to $x$ from its own learned parametric knowledge, and may also rely on information retrieved from an external corpus, as in retrieval-augmented generation (RAG)~\cite{lewis2020retrieval}. For typical queries, the claim $y$ can be split into multiple subclaims $\hat{y} = \{c_1, c_2, \ldots\}$~\cite{min2023factscore,wei2024longform}. To determine how factual the claim $y$ is, the factuality of each of its subclaims must be checked. We call a subclaim $c$ supported, which is denoted as $a(c \mid x) = 1$, if a reference response $y^*$ for the query $x$ entails it, i.e. 
+As shown in Figure~\ref{fig:system}, we study a system in which an LLM generates a claim $y$ in response to a query $x$ using its own learned parametric knowledge and information $D_0$ retrieved from an external corpus $\mathcal{K}$, as in retrieval-augmented generation (RAG)~\cite{lewis2020retrieval}. For typical queries, the claim $y$ can be split into multiple subclaims $\hat{y}_0 = \{c_1, c_2, \ldots\}$~\cite{min2023factscore,wei2024longform}. We call a subclaim $c$ factual, or supported, which is denoted as $a(c \mid x) = 1$, if a reference response $y^*$ for the query $x$ entails it, i.e., \tk{REF} 
 % For a labelled query, such a reference is available, and each subclaim is marked as supported or not, either by human annotators or by an LLM, $a(c)$, that compares it with $y^*$ and gives the labels
 \begin{equation}
   a(c \mid x) = \begin{cases}
@@ -9,24 +8,22 @@ An LLM generates a claim $y$ in response to $x$ from its own learned parametric 
   0 \text{ otherwise.}
   \end{cases}
 \end{equation}
-% We write $a(c) = 1$ if $y^* \Rightarrow c$ and $a(c) = 0$ otherwise.
+Given the subclaims $\hat{y}$, we aim to produce a filtered set $\hat{y} \subset \hat{y}_0$ that includes only supported subclaims with high probability.
  
-Conformal factuality (CF) \cite{mohri2024language} leverages a score $s(c \mid x)$ that reflects how confident the model is in subclaim $c$, e.g. based on log-probabilities of self-confidence scores~\cite{kadavath2022language,tian2023just}. For a threshold $\tau$, the filtered set is evaluated as
+Conformal factuality (CF) \cite{mohri2024language} addresses this goal by assuming no information retrieval and by leveraging a score $s(c \mid x)$ that reflects how confident the model is in subclaim $c$, e.g., based on log-probabilities of self-confidence scores~\cite{kadavath2022language,tian2023just}. For a threshold $\tau$, the filtered set is evaluated as
 \begin{equation}\label{eq:filter_set}
-  F_\tau(\hat{y} \mid x) = \{ c \in \hat{y} : s(c \mid x) \geq \tau \}.
+  \hat{y} = \{ c \in \hat{y}_0 : s(c \mid x) \geq \tau \}.
 \end{equation}
 
-Conformal-RAG (C-RAG)~\cite{feng2025response} uses a RAG pipeline that retrieves a set of documents $D_0$ from a corpus with the user's query $x$, writes the answer from these documents, and then scores each resulting subclaim by how relevant the retrieved documents are to it, producing the score
+Conformal-RAG (C-RAG)~\cite{feng2025response} incorporates a RAG pipeline to write the answer $y$ using also documents $D_0 = Retrieve_{\mathcal{K}(x)}$, where $Retrieve_{\mathcal{K}}(\cdot)$ is a retrieval function over a corpus $\mathcal{K}$. Then, C-RAG scores each resulting subclaim by how relevant the retrieved documents $d \in D_0$ are to it, producing the score
 \begin{equation}\label{eq:crag_score}
   s(c \mid x, D_0) = \max_{d \in D_0} \bigl[\mathrm{sim}(x, d)\, \mathrm{sim}(c, d)\bigr]_+,
 \end{equation}
-where $\mathrm{sim}$ is the cosine similarity between embeddings and $[\cdot]_+ = \max(0, \cdot)$. The score is high when some retrieved document is both relevant to the question and similar to the subclaim. This score results in a selection of subclaims via \eqref{eq:filter_set} that is grounded in retrieved evidence rather than in the confidence of the model.
+where $\mathrm{sim}$ is the cosine similarity between embeddings and we define the function $[\cdot]_+ = \max(0, \cdot)$. The score \eqref{eq:crag_score} is high when some retrieved document is both relevant to the question and similar to the subclaim. This score results in a selection of subclaims via \eqref{eq:filter_set} that is grounded in retrieved evidence rather than in the confidence of the model. Multi-hop C-RAG~\cite{rehman2026conformal} extends C-RAG by running the retrieval of data $D_0$ over several hops.
 
-Multi-hop C-RAG~\cite{rehman2026conformal} extends C-RAG to queries whose answer is spread across several documents, by running the retrieval over several hops. After the first hop, an LLM rewrites the retrieval query from the query $x$ and the documents retrieved so far, and $D_0$ is the union of the documents retrieved over all hops. The score \eqref{eq:crag_score} and the filter \eqref{eq:filter_set} remain the same as in C-RAG.
-
-Leveraging methodology inspired by split-conformal prediction~\cite{vovk2005algorithmic,angelopoulos2023conformal}, CF and Conformal-RAG choose the threshold $\hat{\tau}$ using a set of $n$ labelled queries $(x, y^{*})$. For a new query that is exchangeable with the calibration queries, e.g. for independent and identically distributed (i.i.d.) data, this gives the guarantee
+Leveraging methodology inspired by split-conformal prediction~\cite{vovk2005algorithmic,angelopoulos2023conformal}, CF and C-RAG choose the threshold $\hat{\tau}$ using a set of $n$ labelled queries $(x, y^{*})$. For a new query that is exchangeable with the calibration queries, e.g., for independent and identically distributed (i.i.d.) data, this gives the guarantee
 \begin{equation}
-  \Pr\bigl[\, y^* \Rightarrow c \ \text{for all} \ c \in F_{\hat{\tau}}(\hat{y} \mid x) \,\bigr] \geq 1 - \alpha,
+  \Pr\bigl[\, y^* \Rightarrow c \ \text{for all} \ c \in \hat{y} \,\bigr] \geq 1 - \alpha,
   \label{eq:cf}
 \end{equation}
-where the probability is taken over the calibration queries and the new query. Accordingly, with probability at least $1 - \alpha$, the filtered set $F_{\hat{\tau}}(\hat{y} \mid x)$ in \eqref{eq:filter_set} contains no unsupported subclaim. Note that in the special case where no subclaims remain, i.e., $F_{\hat{\tau}}(\hat{y} \mid x) = \emptyset$, the model abstains. Such abstentions are valid under the guarantee \eqref{eq:cf}, since an empty set contains no unsupported subclaim, but they do not answer the user's query.
+where the probability is taken over the calibration queries and the new query. Note that in the special case where no subclaims remain, i.e., $\hat{y} = \emptyset$, the model effectively abstains. Such abstentions are valid under the guarantee \eqref{eq:cf}, since an empty set contains no unsupported subclaim, but they do not answer the user's query.

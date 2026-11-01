@@ -26,7 +26,7 @@
   \node[box, minimum width=2.4cm] (ext) at (7.25,1.2) {Subclaim extraction};
   \node[box, minimum width=2.6cm] (score) at (8.5,3.6) {Subclaim scoring};
   \node[box, minimum width=2.3cm] (dec) at (12.0,3.6) {Decision};
-  \node[box, minimum width=2.8cm] (sel) at (11.9,1.2) {Final filter};
+  \node[box, minimum width=2.8cm] (sel) at (11.9,1.2) {Filter};
 
   % Rounds t >= 1 only
   \node[loop, minimum width=3.0cm] (rev) at (8.6,6.4) {Subclaim revision};
@@ -36,15 +36,15 @@
   % Round 0 arrows
   \draw[arr] (-0.5,1.2) -- node[lbl, above] {$x$} (ret.west);
   \draw[arr] (-0.25,1.2) -- (-0.25,0.15) -- (llm.south |- 0,0.15) -- (llm.south);
-  \draw[arr] ([xshift=-0.3cm]K.bottom |- ret.north) -- node[lbl, left] {} ([xshift=-0.3cm]K.bottom);
+  \draw[arr] ([xshift=-0.3cm]K.bottom |- ret.north) -- node[lbl, left] {Multi-hop RAG} ([xshift=-0.3cm]K.bottom);
   \draw[arr] ([xshift=0.3cm]K.bottom) -- node[lbl, right] {} ([xshift=0.3cm]K.bottom |- ret.north);
   \draw[arr] (ret.east) -- node[lbl, below] {$D_{0}$} (llm.west);
-  \draw[arr] (3.0,1.2) -- (3.0,2.4) -- (D.bottom |- 0,2.4) -- (D.bottom);
+  \draw[looparr] (3.0,1.2) -- (3.0,2.4) -- (D.bottom |- 0,2.4) -- (D.bottom);
   \draw[arr] (llm.east) -- node[lbl, above] {$y$} (ext.west);
   \draw[arr] ([xshift=-0.4cm]ext.north) |- node[lbl, left, pos=0.60] {$\hat{y}_{0}$} (score.west |- 0,3.35);
-  \draw[arr] (D.east |- 0,3.85) -- node[lbl, above] {$D_{t}$} (score.west |- 0,3.85);
+  \draw[looparr] (D.east |- 0,3.85) -- node[lbl, above] {$D_{t}$} (score.west |- 0,3.85);
   \draw[arr] (score.east) -- node[lbl, above] {$s_t$} (dec.west);
-  \draw[arr] (dec.south) -- node[lbl, left, align=right] {stop at time $t^*$\\ $\hat{y}_{t^*}, D_{t^*}, s_{t^*}$} (dec.south |- sel.north);
+  \draw[arr] (dec.south) -- node[lbl, left, align=right] {} (dec.south |- sel.north);
   \draw[arr] (sel.east) -- node[lbl, above] {$\hat{y}$} (15.7,1.2);
   \draw[arr, dashed] (lab.bottom) |- (12.8,2.5) -- (12.8,0 |- sel.north);
 
@@ -53,8 +53,8 @@
   \draw[looparr] ([xshift=-0.9cm]dec.north) |- node[looplbl, below, align=center, pos=0.85] {keep $k_{t}$,\\ rework $w_{t}$} (9.9,4.95) -- (9.9,0 |- rev.south);
   \draw[looparr] (8.55,0 |- rev.south) -- node[looplbl, left] {$\hat{y}_{t+1}$} (8.55,0 |- score.north);
   \draw[looparr] ([xshift=0.9cm]dec.north) |- node[looplbl, below, align=center, pos=0.75] {remove $z_{t}$} (14.4,4.95) -- (14.4,0 |- rm.south);
-  \draw[looparr] (qgen.north) -- (qgen.north |- 0,7.7) -- node[looplbl, above] {$q_t(c),\ c \in w_{t}$} (K.top |- 0,7.7) -- (K.top);
-  \draw[looparr] (K.east) -- node[looplbl, above, yshift=1pt] {$\mathrm{Retrieve}(q_t(c))$} (D.west);
+  \draw[looparr] (qgen.north) -- (qgen.north |- 0,7.7) -- node[looplbl, above] {} (K.top |- 0,7.7) -- (K.top);
+  \draw[looparr] (K.east) -- node[looplbl, above, yshift=1pt] {} (D.west);
   \draw[looparr] (D.top) -- (D.top |- rev.west) -- node[looplbl, above, pos=0.35] {$D_{t+1}$} (rev.west);
   \draw[looparr, dashed] (lab.west) -- (dec.east);
 \end{tikzpicture}%

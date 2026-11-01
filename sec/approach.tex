@@ -1,19 +1,15 @@
 \section{Active C-RAG}\label{sec:approach}
 
-In this section we describe our implementation of the schema given in Section~\ref{sec:prob_form}, for each of the system components in Figure~\ref{fig:system}.
-
-\subsection{Base Pipeline}\label{subsec:base}
-
-AC-RAG uses round $0$ of (multi-hop) C-RAG, unchanged, i.e., the initial retrieval, the LLM $G$ and the subclaim extraction, so that with $T = 0$, the system differs from these methods only in the subclaim scorer.
+In this section we introduce Active C-RAG (AC-RAG), which follows the general block diagram in Figure~\ref{fig:system}, incorporating iterative evidence retrieval and subclaim editing  under the requirement \eqref{eq:cf}.
 
 \subsection{Subclaim Scorer}\label{subsec:scorer}
 
-In practice, the retrieved documents are short passages, such as chunks of an article or single sentences, and we refer to them as passages. The score \eqref{eq:crag_score} has two key issues when the answer to a query relies on a bridge entity. Firstly, the cosine similarity $\mathrm{sim}(c, d)$ measures how close a subclaim and a passage are in topic, not whether the passage supports the subclaim. Secondly, as discussed in Section~\ref{sec:intro}, the factor $\mathrm{sim}(x, d)$ penalises passages about the bridge entity, as these are not very similar to the query. Hence, the score of $c^{\star}_2$ would remain low even if Spielberg's biography were retrieved. To score whether the evidence supports a subclaim, we therefore replace \eqref{eq:crag_score} by a natural language inference (NLI) model. For a passage $d$ and a subclaim $c$, the NLI model returns the probabilities $p_{\mathrm{ent}}(d, c)$, $p_{\mathrm{con}}(d, c)$ and $p_{\mathrm{neu}}(d, c)$ that $d$ entails $c$, contradicts $c$, or neither, which sum to $1$. The scorer then assigns two scores to each subclaim $c \in \hat{y}_t$,
+We start by adapting the subclaim score \eqref{eq:crag_score} to settings like Figure~\ref{fig:system}, that retrieve evidence not only based on the query $x$ but also based on intermediate subclaims. To this end, we leverage a natural language inference (NLI) model. For a passage $d$ and a subclaim $c$, the NLI model \tk{REFS}, which returns the probabilities $p_{\mathrm{ent}}(d, c)$, $p_{\mathrm{con}}(d, c)$ and $p_{\mathrm{neu}}(d, c)$ that document $d$ entails, contradicts, or is neutral about subclaim $c$, with $p_{\mathrm{ent}}(\cdot) + p_{\mathrm{con}}(\cdot) + p_{\mathrm{neu}}(\cdot) = 1$. The scorer then assigns two scores $s_t = [s^{ent}_{t}, s^{con}_{t}]$to each subclaim $c \in \hat{y}_t$, namely
 \begin{equation}
-  s^{\mathrm{ent}}_t(c \mid x, D_t) = \max_{d \in D_t} p_{\mathrm{ent}}(d, c), \qquad s^{\mathrm{con}}_t(c \mid x, D_t) = \max_{d \in D_t} p_{\mathrm{con}}(d, c),
+  s^{\mathrm{ent}}_t(c \mid x, D_t) = \max_{d \in D_t} p_{\mathrm{ent}}(d, c), and s^{\mathrm{con}}_t(c \mid x, D_t) = \max_{d \in D_t} p_{\mathrm{con}}(d, c).
   \label{eq:nli_score}
 \end{equation}
-such that $s_t$ now contains several scores for each subclaim. The entailment score $s^{\mathrm{ent}}_t$ is high only if some passage entails $c$, and it does not depend on how the query $x$ is worded. Spielberg's biography, for instance, clearly entails $c^{\star}_2$, although it is not similar to $x$. The contradiction score $s^{\mathrm{con}}_t$ is high if some passage contradicts $c$, and it is only used by the decision block to remove subclaims. Entailment-based scorers have also been found to match or outperform LLM confidence scores for conformal factuality in RAG, at a far lower computational cost \cite{chen2026conformal}.
+These scores depend only on whether some document $d \in D_t$ entails or contradicts $c$, and they do not depend on how the query is worded, making it easier to extract evidence from later rounds. Entailment-based scorers have also been found to match or outperform LLM confidence scores for conformal factuality in RAG, at a far lower computational cost \cite{chen2026conformal}.
 
 The scorer also returns the evidence that each round adds for each subclaim. For a subclaim $c$, let $N_t(c) \subseteq D_t$ denote the passages of $D_t$ that have not been scored against $c$ in earlier rounds. The new evidence for $c$ at round $t$ is then the best of these passages,
 \begin{equation}
