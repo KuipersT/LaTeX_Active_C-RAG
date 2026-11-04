@@ -1,12 +1,19 @@
+% Highlighting of new text: \added{...} shows its argument in blue while \ifhighlightnew is true.
+% To turn the highlighting off, put \newif\ifhighlightnew \highlightnewfalse in the preamble.
+\makeatletter
+\@ifundefined{ifhighlightnew}{\newif\ifhighlightnew\highlightnewtrue}{}
+\makeatother
+\providecommand{\added}[1]{\ifhighlightnew{\color{blue}#1}\else#1\fi}
+
 \section{Active C-RAG}\label{sec:approach}
 
-In this section we introduce Active C-RAG (AC-RAG), which follows the general block diagram in Figure~\ref{fig:system}, incorporating iterative evidence retrieval and subclaim editing  under the requirement \eqref{eq:cf}.
+In this section we introduce Active C-RAG (AC-RAG), which follows the general block diagram in Figure~\ref{fig:system}, incorporating iterative evidence retrieval and subclaim editing under the requirement \eqref{eq:fdr}.
 
 \subsection{Subclaim Scorer}\label{subsec:scorer}
 
-We start by adapting the subclaim score \eqref{eq:crag_score} to settings like Figure~\ref{fig:system}, that retrieve evidence not only based on the query $x$ but also based on intermediate subclaims. To this end, we leverage a natural language inference (NLI) model. For a passage $d$ and a subclaim $c$, the NLI model \tk{REFS}, which returns the probabilities $p_{\mathrm{ent}}(d, c)$, $p_{\mathrm{con}}(d, c)$ and $p_{\mathrm{neu}}(d, c)$ that document $d$ entails, contradicts, or is neutral about subclaim $c$, with $p_{\mathrm{ent}}(\cdot) + p_{\mathrm{con}}(\cdot) + p_{\mathrm{neu}}(\cdot) = 1$. The scorer then assigns two scores $s_t = [s^{ent}_{t}, s^{con}_{t}]$to each subclaim $c \in \hat{y}_t$, namely
+We start by adapting the subclaim score \eqref{eq:crag_score} to settings like Figure~\ref{fig:system}, that retrieve evidence not only based on the query $x$ but also based on intermediate subclaims. To this end, we leverage a natural language inference (NLI) model. For a passage $d$ and a subclaim $c$, the NLI model \tk{REFS}, which returns the probabilities $p_{\mathrm{ent}}(d, c)$, $p_{\mathrm{con}}(d, c)$ and $p_{\mathrm{neu}}(d, c)$ that document $d$ entails, contradicts, or is neutral about subclaim $c$, with $p_{\mathrm{ent}}(\cdot) + p_{\mathrm{con}}(\cdot) + p_{\mathrm{neu}}(\cdot) = 1$. The scorer then assigns two scores $s_t = [s^{\mathrm{ent}}_{t}, s^{\mathrm{con}}_{t}]$ to each subclaim $c \in \hat{y}_t$, namely
 \begin{equation}
-  s^{\mathrm{ent}}_t(c \mid x, D_t) = \max_{d \in D_t} p_{\mathrm{ent}}(d, c), and s^{\mathrm{con}}_t(c \mid x, D_t) = \max_{d \in D_t} p_{\mathrm{con}}(d, c).
+  s^{\mathrm{ent}}_t(c \mid x, D_t) = \max_{d \in D_t} p_{\mathrm{ent}}(d, c) \quad \text{and} \quad s^{\mathrm{con}}_t(c \mid x, D_t) = \max_{d \in D_t} p_{\mathrm{con}}(d, c).
   \label{eq:nli_score}
 \end{equation}
 These scores depend only on whether some document $d \in D_t$ entails or contradicts $c$, and they do not depend on how the query is worded, making it easier to extract evidence from later rounds. Entailment-based scorers have also been found to match or outperform LLM confidence scores for conformal factuality in RAG, at a far lower computational cost \cite{chen2026conformal}.
@@ -19,81 +26,98 @@ The scorer also returns the evidence that each round adds for each subclaim. For
 which is only defined when $N_t(c) \neq \emptyset$. A passage therefore contributes to $p_t(c)$ at most once for each subclaim, including a passage that was retrieved for a different subclaim. 
 % \tk{I think this is how we should treat this. Every round is a new bet against the new evidence that is retrieved so that the e-process only considers a piece of evidence once. Does this make sense?}
 
+\subsection{Per-Round E-Values}\label{subsec:evalues}
+
+To decide which subclaims can be returned, AC-RAG measures the evidence for each subclaim by means of e-values~\cite{vovk2021evalues,ramdas2023game}. For each subclaim $c$, we consider the null hypothesis $H_c$ that $c$ is unsupported, i.e., $a(c \mid x) = 0$. An e-value for $H_c$ is a non-negative statistic whose expected value is at most $1$ when $H_c$ holds. A large e-value therefore provides evidence against $H_c$, since, by Markov's inequality, the e-value of an unsupported subclaim exceeds $1/\alpha$ with probability at most $\alpha$. Unlike p-values, e-values obtained from successive rounds of evidence can be combined into a single measure of evidence, and e-values of many subclaims can be combined regardless of the dependence among them.
+
+The e-values of AC-RAG are obtained by comparing the evidence for a subclaim with the evidence found for the unsupported subclaims of labelled calibration queries. As the evidence available for a subclaim changes over the rounds, this comparison is made separately at each round, against calibration queries that have reached the same stage of the loop. To this end, the calibration set is partitioned into $T + 1$ disjoint subsets $\mathcal{C}_0, \ldots, \mathcal{C}_T$, where subset $\mathcal{C}_t$ contains $n_t$ labelled queries that are processed by the same loop as the test query up to round $t$. Since the decisions taken before round $t$ do not depend on $\mathcal{C}_t$, the test query and the calibration queries in $\mathcal{C}_t$ receive the same treatment up to round $t$, and they are therefore exchangeable at round $t$.
+
+Following the e-scores of~\cite{dhillon2026escores}, at each round $t$ at which the new evidence $p_t(c)$ in \eqref{eq:new_score} is defined, we evaluate the per-round e-value
+\begin{equation}
+  e_t(c) = \frac{(n_t + 1)\, p_t(c)}{p_t(c) + \sum_{i \in \mathcal{C}_t} p^*_{i,t}},
+  \label{eq:round_evalue}
+\end{equation}
+where
+\begin{equation}
+  p^*_{i,t} = \max \bigl\{ p_t(c') : c' \in \hat{y}_{t,i},\ a(c' \mid x_i) = 0 \bigr\}
+  \label{eq:cal_max}
+\end{equation}
+is the new evidence of the most convincing unsupported subclaim among the subclaims $\hat{y}_{t,i}$ of calibration query $x_i \in \mathcal{C}_t$ at round $t$, with $p^*_{i,t} = 0$ if there is none. The e-value \eqref{eq:round_evalue} is large when the new evidence for $c$ is strong compared with the evidence that the most convincing unsupported subclaims of the calibration queries receive at the same round, and it is small otherwise. Since the test query is compared with the most convincing unsupported subclaim of each calibration query, the largest e-value among the unsupported subclaims of the test query satisfies
+\begin{equation}
+  \mathbb{E}\Bigl[ \max_{c \in \hat{y}_t :\, a(c \mid x) = 0} e_t(c) \Bigr] \leq 1
+\end{equation}
+by exchangeability~\cite{dhillon2026escores}. Each $e_t(c)$ is therefore a valid e-value for $H_c$, regardless of the number of subclaims and of the dependence among them. Note that $e_t(c) \leq n_t + 1$, so that a single round can only provide a limited amount of evidence.
+
+\subsection{E-Processes}\label{subsec:eprocess}
+
+A supported subclaim may only receive strong evidence after several rounds, e.g., once the passage that entails it has been retrieved. AC-RAG therefore accumulates the per-round e-values of each subclaim into an e-process~\cite{ramdas2023game}, i.e., a sequence of e-values that remains valid at whichever round the system stops. The e-process $M_t(c)$ starts at $1$ at the round at which $c$ is created, and at every round at which $e_t(c)$ is evaluated, it is updated as
+\begin{equation}
+  M_t(c) = M_{t-1}(c) \bigl( 1 + \lambda_t \bigl( e_t(c) - 1 \bigr) \bigr),
+  \label{eq:eprocess_update}
+\end{equation}
+while it is left unchanged at the other rounds. Following~\cite{waudbysmith2023betting,zecchin2024adaptive}, the e-process can be interpreted as the wealth of a gambler who bets against $H_c$. At each round, the gambler bets a fraction $\lambda_t \in [0, 1]$ of the current wealth on $c$ being supported, and the payoff $e_t(c) - 1$ is positive when the new evidence for $c$ is strong, and negative otherwise. The wealth therefore grows over the rounds in which strong evidence is found for $c$, while the fraction $1 - \lambda_t$ that is not bet is kept, so that a single round with weak evidence does not discard the evidence of the previous rounds. Since $e_t(c) \geq 0$, the wealth never becomes negative, and the stake $\lambda_t$ may be chosen based on the previous rounds, e.g., as in~\cite{waudbysmith2023betting}.
+% Note that the payoff $e_t(c) - 1$ has a non-positive mean when $c$ is unsupported, since $e_t(c)$ is a valid e-value. 
+Constructing such a payoff requires the calibration queries, since the null hypothesis $H_c$, unlike a hypothesis on the mean of an observed loss, does not by itself constrain the distribution of the NLI scores.
+
+If each per-round e-value is valid given the previous rounds, i.e., $\mathbb{E}[e_t(c) \mid \mathcal{F}_{t-1}] \leq 1$ for every unsupported subclaim $c$, where $\mathcal{F}_{t-1}$ denotes everything observed up to round $t - 1$, then each update \eqref{eq:eprocess_update} does not increase $M_t(c)$ in expectation for an unsupported subclaim. The value $M_{t^*}(c)$ at any stopping time $t^*$ is then a valid e-value for $H_c$, i.e., $\mathbb{E}[M_{t^*}(c)] \leq 1$~\cite{ramdas2023game}, which is what allows the system to decide, based on what it has observed, whether to stop or to continue for further rounds.
+
+% \tk{For discussion: the condition $\mathbb{E}[e_t(c) \mid \mathcal{F}_{t-1}] \leq 1$ is not implied by the exchangeability of the test query with the queries of $\mathcal{C}_t$, which only gives validity on average over queries. The scores of a subclaim are dependent across rounds, since the query $x$ and the subclaim $c$ are reused at every round, the subclaims are rewritten based on past evidence, and the subclaims that are reworked at round $t$ are selected by the decisions of the previous rounds. For example, an unsupported subclaim that is nearly true may remain convincing from one round to the next, especially as the retrieval queries are written from the subclaim itself. A way to address this is to control the memory of the loop, e.g., by restricting what query generation and revision may use from previous rounds, and to condition on it, in the manner of Mondrian calibration, by calibrating the e-values separately for each value of a small memory state. Alternatively, averaging the per-round e-values with weights fixed in advance, rather than multiplying them, gives valid e-values at any stopping time without this condition, at the cost of power, and the conditional conformal test martingales of~\cite{shaer2026testing} could replace the partition of the calibration set by a single reference set.}
+
 \subsection{Decision Block}\label{subsec:decision}
-
-% \tk{Why not e-scores: they compare a subclaim's score with those of false subclaims from the pilot set, computed once at round $0$. It is therefore only valid for a single comparison at round $0$. After rework, the subclaim is scored on evidence retrieved specifically for it, so the comparison no longer holds, and checking it again at every round inflates the error. Calibrating a fresh e-score on a pilot set at each round wouldn't resolve this either, since multiplying them requires each one to be valid given the history of the query, whereas a conformal e-score is only valid on average over queries. So instead we can use betting, in which each round is a new bet that is fair given everything observed before, and the bets are multiplied into an e-process.}
-
-Taking the null hypothesis $H_c$ for each subclaim $c$ to be that $c$ is unsupported, i.e., $a(c \mid x) = 0$, the decision block accumulates evidence against $H_c$ over the rounds. Its decisions only steer the loop, i.e., they determine which subclaims are kept, reworked or removed, and when to stop, whereas the guarantee \eqref{eq:cf_seq} is obtained by the final filtering step.
 
 The decision block first removes the subclaims that the evidence contradicts. To this end, a subclaim is removed when at least one passage contradicts it and no passage entails it, which, in terms of the scores \eqref{eq:nli_score}, gives
 \begin{equation}
   z_t = \bigl\{ c \in \hat{y}_t \setminus k_{t-1} : s^{\mathrm{con}}_t(c \mid x, D_t) > 1/2 \ \text{and} \ s^{\mathrm{ent}}_t(c \mid x, D_t) \leq 1/2 \bigr\},
   \label{eq:removal}
 \end{equation}
-with $k_{t-1} = \emptyset$ for $t = 0$. Since the three probabilities of the NLI model sum to $1$, a probability above $1/2$ is the largest of the three, so that a passage with $p_{\mathrm{con}}(d, c) > 1/2$ contradicts $c$, and $s^{\mathrm{ent}}_t(c \mid x, D_t) \leq 1/2$ means that no passage entails $c$ with a probability above $1/2$. We note that removal requires no calibration, as a removed subclaim is never returned, and thus cannot lead to an error in \eqref{eq:cf_seq}.
+with $k_{t-1} = \emptyset$ for $t = 0$. Since the three probabilities of the NLI model sum to $1$, a probability above $1/2$ is the largest of the three, so that a passage with $p_{\mathrm{con}}(d, c) > 1/2$ contradicts $c$, and $s^{\mathrm{ent}}_t(c \mid x, D_t) \leq 1/2$ means that no passage entails $c$ with a probability above $1/2$. We note that removal requires no calibration, as a removed subclaim is never returned, and thus cannot lead to a false discovery in \eqref{eq:fdr}. Accordingly, the e-process of a removed subclaim is set to $0$, which preserves its validity.
 
-For the remaining subclaims, the decision block accumulates evidence over the rounds with an e-process \cite{ramdas2023game}, which is built from a bound on how well the new evidence for an unsupported subclaim scores. Specifically, we require a constant $\bar{p}_{\mathrm{null}} \in (0, 1)$ such that, for every subclaim $c$ with $a(c \mid x) = 0$ and every round $t$ at which $p_t(c)$ is defined,
+The remaining subclaims are kept or reworked based on their e-processes. Selecting several subclaims requires care, since every additional subclaim that is accepted is another opportunity to accept an unsupported one. To this end, AC-RAG uses the e-BH procedure~\cite{wang2022false}, which is the e-value counterpart of the Benjamini--Hochberg procedure~\cite{benjamini1995controlling}. Given e-values for $K$ hypotheses, sorted in decreasing order as $E_{(1)} \geq E_{(2)} \geq \ldots \geq E_{(K)}$, the e-BH procedure, at level $\alpha$, selects the $\hat{k}$ hypotheses with the largest e-values, where
 \begin{equation}
-  \mathbb{E}\bigl[\, p_t(c) \mid \mathcal{F}_{t-1} \,\bigr] \leq \bar{p}_{\mathrm{null}},
-  \label{eq:null_bound}
+\hat{k} = \max \Bigl\{ k : E_{(k)} \geq \frac{K}{\alpha k} \Bigr\},
+\label{eq:ebh}
 \end{equation}
-where $\mathcal{F}_{t-1}$ denotes everything observed up to round $t-1$. In other words, $\bar{p}_{\mathrm{null}}$ is the level up to which, on average, the NLI model is fooled by the new evidence for an unsupported subclaim. For each subclaim $c$, the e-process $M_t(c)$ starts at $1$ at the round at which $c$ is created, and at every round at which $p_t(c)$ is defined, it is updated as
-\begin{equation}
-  M_t(c) = M_{t-1}(c) \bigl(1 + \lambda_t(c) \bigl(p_t(c) - \bar{p}_{\mathrm{null}}\bigr)\bigr),
-  \label{eq:betting}
-\end{equation}
-while it is left unchanged at the other rounds. The stake $\lambda_t(c) \in [0, 1/\bar{p}_{\mathrm{null}}]$ is chosen from $\mathcal{F}_{t-1}$, for instance as a constant or adaptively as in \cite{waudbysmith2023betting}, and its upper limit keeps $M_t(c)$ non-negative. Under \eqref{eq:null_bound}, each factor in \eqref{eq:betting} has expectation at most $1$ given $\mathcal{F}_{t-1}$ for an unsupported subclaim, so that $\mathbb{E}[M_t(c) \mid \mathcal{F}_{t-1}] \leq M_{t-1}(c)$, whatever happened in earlier rounds. By Ville's inequality \cite{ramdas2023game}, the probability that $M_t(c)$ ever reaches $1/\alpha$ is then at most $\alpha$, regardless of the number of rounds and of the round at which the system stops. For a supported subclaim, on the other hand, the new passages typically score above $\bar{p}_{\mathrm{null}}$, and $M_t(c)$ grows multiplicatively over the rounds. 
-% Note that \eqref{eq:null_bound} is a design assumption, which makes $M_t(c)$ a meaningful measure of the evidence for $c$, and not a condition for the guarantee \eqref{eq:cf_seq}, which holds whether or not \eqref{eq:null_bound} holds.
+with $\hat{k} = 0$ if no such $k$ exists, and we denote $\mathrm{EBH}_{\alpha}(\cdot)$ as the selected set. The threshold $K/(\alpha k)$ decreases with the number $k$ of selected hypotheses, since a single unsupported subclaim represents a smaller fraction of a larger selected set. The e-BH procedure controls the FDR at level $\alpha$ as long as each e-value is valid on its own, regardless of the dependence among them~\cite{wang2022false}, which is important here, as the subclaims of an answer share the query $x$ and the evidence $D_t$. Moreover, since the value of each e-process at a stopping time is a valid e-value, the e-BH procedure can be applied to the e-processes at whichever round the system stops. In AC-RAG, $K$ is an upper bound on the number of subclaims that the system may create, which is fixed in advance, and the e-values of the subclaims that have been removed, rewritten or not created are set to $0$.
 
-The constant $\bar{p}_{\mathrm{null}}$ is estimated from a pilot set $\mathcal{D}_{\mathrm{pilot}}$ of $m$ labelled queries, which we refer to as pilot queries. The pilot queries are processed by the same loop as any other query, and $\bar{p}_{\mathrm{null}}$ is set to an upper confidence bound on the mean of $p_t(c)$ over their unsupported subclaims, so that \eqref{eq:null_bound} holds with high probability over the pilot set. Note that the pilot set only estimates the average of $p_t(c)$ over the histories of the pilot queries, whereas \eqref{eq:null_bound} is stated given each history. It is important to note that that the pilot set must be kept separate from the $n$ calibration queries $\mathcal{D}_{\mathrm{cal}}$ of the final filtering step. For the guarantees at the final filtering step to hold at test time, $\bar{p}_{\mathrm{null}}$ and thus the decision rule must have been already fixed so that test-time and calibration time queries receive the same treatment by the final filtering step.
-
-A subclaim is kept once its e-process has reached $1/\alpha_{\mathrm{keep}}$, i.e.,
+The subclaims selected by the e-BH procedure at round $t$ are kept, i.e.,
 \begin{equation}
-  k_t = k_{t-1} \cup \bigl\{ c \in \hat{y}_t \setminus (k_{t-1} \cup z_t) : M_t(c) \geq 1/\alpha_{\mathrm{keep}} \bigr\},
+  k_t = k_{t-1} \cup \bigl( \mathrm{EBH}_{\alpha}\bigl(\{ M_t(c) \}\bigr) \setminus z_t \bigr),
   \label{eq:keep}
 \end{equation}
-and every subclaim that is neither kept nor removed is reworked, i.e., $w_t = \hat{y}_t \setminus (k_t \cup z_t)$. The tolerance $\alpha_{\mathrm{keep}}$ is fixed on the pilot set and only steers the loop, so that it need not equal the level $\alpha$ of \eqref{eq:cf_seq}. A kept subclaim is no longer reworked, which agrees with the subclaims of $k_t$ being kept unchanged by the revision block, and protects a subclaim that is already well supported from being reworded. All subclaims of $w_t$ accumulate evidence in parallel. Note that a single factor in \eqref{eq:betting} is at most $1/\bar{p}_{\mathrm{null}}$, so that, unless $\bar{p}_{\mathrm{null}} \leq \alpha_{\mathrm{keep}}$, a subclaim is only kept after several rounds in which strongly entailing passages are found for it. In the example, $c^{\star}_1$ is entailed by the Jaws article, so that $M_0(c^{\star}_1)$ increases and further passages about the film are retrieved for it, whereas no passage of $D_0$ entails $c^{\star}_2$, so that $M_0(c^{\star}_2) = 1$ and $c^{\star}_2$ is reworked.
-
-\tk{for discussion: the kept set $k_{t^*}$ could itself be returned as the answer, with a guarantee of its own, if \eqref{eq:null_bound} holds given each history. By Ville's inequality, $M_t(c)$ then ever reaches $1/\alpha$ with probability at most $\alpha$ when $c$ is unsupported, and a multiple testing step over the subclaims of an answer is needed on top. Three options are FST~\cite{bauer1991multiple} at the full level $\alpha$, which requires some order of the subclaims and blocks every later subclaim behind one that cannot be kept. Or we can introduce weights $\omega_c$ with $\sum_c \omega_c \leq 1$ and the threshold $1/(\alpha \omega_c)$, which avoids blocking at the cost of a higher threshold for each subclaim. We can also use e-BH~\cite{wang2022false} applied to $M_{t^*}(c)$, which controls the false discovery rate rather than the FWER, and so changes \eqref{eq:cf_seq}. The robust bet of~\cite{shaer2026testing}, which accounts for the estimation error of the pilot set within the bet, would then replace \eqref{eq:betting}.}
+and every subclaim that is neither kept nor removed is reworked, i.e., $w_t = \hat{y}_t \setminus (k_t \cup z_t)$. A kept subclaim is no longer reworked, which agrees with the subclaims of $k_t$ being kept unchanged by the revision block, and protects a subclaim that is already well supported from being reworded. All subclaims of $w_t$ accumulate evidence in parallel. In the example, $c^{\star}_1$ is entailed by the Jaws article, so that $e_0(c^{\star}_1)$ is large and $c^{\star}_1$ may be selected by \eqref{eq:ebh}, whereas no passage of $D_0$ entails $c^{\star}_2$, so that $e_0(c^{\star}_2)$ is small and $c^{\star}_2$ is reworked.
 
 The decision block stops at the round
 \begin{equation}
   t^* = \min\bigl\{ t : w_t = \emptyset, \ \text{or} \ D_{t+1} = D_t, \ \text{or} \ t = T \bigr\},
   \label{eq:stop}
 \end{equation}
-that is, when every subclaim has been kept or removed, when the rework returns no new passages, so that no further evidence can be gained, or when the budget of $T$ rounds is used up. As the threshold of the final filtering step is calibrated on queries that follow the same stopping rule, any stopping rule preserves the guarantee \eqref{eq:cf_seq}, and \eqref{eq:stop} only determines how much evidence is collected.
+that is, when every subclaim has been kept or removed, when the rework returns no new passages, so that no further evidence can be gained, or when the budget of $T$ rounds is used up.As the e-processes remain valid at any stopping time, any stopping rule preserves \eqref{eq:fdr}, and \eqref{eq:stop} only determines how much evidence is collected.
 
 \subsection{Query Generation}\label{subsec:query}
 
-For each subclaim $c \in w_t$, an LLM writes the retrieval query $q_t(c)$ from the query $x$, the subclaim $c$ and the evidence $D_t$, so that the query can make use of a bridge entity identified in earlier rounds, and the returned passages are added to the evidence store as in \eqref{eq:store}. In the example, $c^{\star}_2$ yields a query such as ``Steven Spielberg birthplace'', which retrieves his biography. As a simpler alternative, the subclaim $c$ itself can be used as the retrieval query. Unlike in multi-hop C-RAG, whose queries are rewritten from the query $x$ and the documents retrieved so far, as described in Section~\ref{sec:background}, the queries of AC-RAG are written from the subclaims that are not yet kept.
+For each subclaim $c \in w_t$, an LLM writes the retrieval query $q_t(c)$ from the query $x$, the subclaim $c$ and the evidence $D_t$, so that the query can make use of a bridge entity identified in earlier rounds, and the returned passages are added to the evidence store as in \eqref{eq:store}, so that the query $q_t(x, w_t, D_t)$ of Section~\ref{sec:prob_form} consists of one query for each subclaim. In the example, $c^{\star}_2$ yields a query such as ``Steven Spielberg birthplace'', which retrieves his biography. As a simpler alternative, the subclaim $c$ itself can be used as the retrieval query. Unlike in multi-hop C-RAG, whose retrieval hops are driven by the query $x$, the queries of AC-RAG are written from the subclaims that are not yet kept.
 
 \subsection{Subclaim Revision}\label{subsec:revision}
 
-The revision block keeps the subclaims of $k_t$ unchanged, and, for each subclaim $c \in w_t$, either leaves $c$ unchanged or rewrites it given the new evidence. It may also add new subclaims that the new evidence supports. A rewritten or added subclaim is a new hypothesis, with an e-process that starts at $1$. A refinement of a kept subclaim, such as the month of an event whose year is already kept, is also added as a new subclaim, so that the kept subclaim keeps its status. In the example, $c^{\star}_2$ needs no rewriting, as Spielberg's biography entails it as it stands, so that $c^{\star}_2$ keeps its e-process, which grows with the new evidence until $c^{\star}_2$ is kept. \tk{as we discussed, it might be worth ignoring this for now}
+The revision block keeps the subclaims of $k_t$ unchanged, and, for each subclaim $c \in w_t$, either leaves $c$ unchanged or rewrites it given the new evidence. It may also add new subclaims that the new evidence supports. A rewritten or added subclaim is a new hypothesis, with an e-process that starts at $1$, and the e-process of the subclaim before rewriting is set to $0$, as for a removed subclaim. A refinement of a kept subclaim, such as the month of an event whose year is already kept, is also added as a new subclaim, so that the kept subclaim keeps its status. In the example, $c^{\star}_2$ needs no rewriting, as Spielberg's biography entails it as it stands, so that $c^{\star}_2$ keeps its e-process, which grows with the new evidence until $c^{\star}_2$ is kept. \tk{as we discussed, it might be worth ignoring this for now}
 
 \subsection{Final Filtering Step}\label{subsec:final}
 
-The final filtering step applies the filter \eqref{eq:filter_set} to the remaining subclaims, with the e-process at the stopping round as the score, i.e.,
+At the stopping time $t^*$, the final filtering block returns the subclaims selected by the e-BH procedure \eqref{eq:ebh} applied to the e-processes, i.e.,
 \begin{equation}
-  \hat{y} = F_{\hat{\tau}}(\hat{y}_{t^*}) = \bigl\{ c \in \hat{y}_{t^*} : M_{t^*}(c) \geq \hat{\tau} \bigr\},
-  \label{eq:final_filter}
+  \hat{y} = \mathrm{EBH}_{\alpha}\bigl(\{ M_{t^*}(c) \}\bigr).
+  \label{eq:final_ebh}
 \end{equation}
-where $\hat{\tau}$ is chosen as in CF, but from calibration queries that have each been processed by the whole AC-RAG loop. As long as the loop is fixed in advance and is the same at calibration and test time, the test query and the calibration queries remain exchangeable, and \eqref{eq:cf_seq} holds regardless of \eqref{eq:null_bound}, of the stopping rule, and of how many subclaims the loop recovers.
+Since $M_{t^*}(c)$ is a valid e-value for every unsupported subclaim $c$, and the e-BH procedure controls the FDR for arbitrarily dependent e-values, the returned set \eqref{eq:final_ebh} satisfies \eqref{eq:fdr} for any stopping time $t^*$. With $T = 0$, AC-RAG reduces to applying the e-BH procedure to the e-values \eqref{eq:round_evalue} of round $0$.
 
-The e-process is used as the score of the final filtering step, rather than the entailment score $s^{\mathrm{ent}}_{t^*}(c \mid x, D_{t^*})$ of \eqref{eq:nli_score}, since $s^{\mathrm{ent}}_{t^*}$ is a maximum over all passages. An unsupported subclaim that is reworked over many rounds therefore has many chances to find a passage that the NLI model mistakes for support, which raises its entailment score, and with it the threshold $\hat{\tau}$. Its e-process, on the other hand, decreases at every round in which the new evidence is weak. If \eqref{eq:null_bound} holds, $\hat{\tau}$ is close to $1/\alpha$, whereas otherwise the calibration raises $\hat{\tau}$ accordingly, so that a violation of \eqref{eq:null_bound} reduces the usefulness \eqref{eq:usefulness}, but not the guarantee \eqref{eq:cf_seq}. With $T = 0$ and a constant stake, $M_0(c)$ is an increasing function of $s^{\mathrm{ent}}_0(c \mid x, D_0)$, so that the final filtering step reduces to C-RAG with the entailment score of \eqref{eq:nli_score}.
+\tk{For discussion: alternatively, the final filtering block could apply the filter \eqref{eq:filter_set} as in CF, with a threshold calibrated on queries that have each been processed by the whole loop. This gives \eqref{eq:cf} regardless of the dependence across rounds, but it does not exploit the e-processes, and we therefore consider it as a benchmark. The e-scores of~\cite{dhillon2026escores} could also be used at this step, which allows $\alpha$ to be chosen after the scores have been seen.}
 
-\tk{Alternative: the e-scores of Dhillon et al.~\cite{dhillon2026escores} could be used at this step, computed once at $t^*$ against calibration queries that have each been processed by the whole loop. This would give an e-value version of the final filtering step, which allows $\alpha$ to be chosen after the scores have been seen. They remain unsuitable inside the loop, as they are only valid for a single comparison.}
+% \section{Questions for Discussion}
 
-% \subsection{Validity and Assumptions}\label{sec:assumptions}
-
-% Ville's inequality makes each e-process valid over any number of rounds, and FST makes the certification valid over the subclaims of an answer at the full level $\alpha$. Both rely on the null bound \eqref{eq:null_bound}, which is the only assumption of the first returned set. It can fail in two ways. The NLI model may be fooled by passages that are closely related to an unsupported subclaim but say something slightly different, which raises the mean of $p_t(c)$ under the null, and the pilot set only estimates this mean on average over the histories of the pilot queries, rather than given each history \tk{Check how often the NLI model is fooled by such passages.}. The second returned set does not rely on \eqref{eq:null_bound}, and only requires that the calibration queries and the test query are exchangeable.
-
-\section{Questions for Discussion}
-
-It would be great to get your input on some of these
-\begin{enumerate}[leftmargin=*]
-  \item How should $\bar{p}_{\mathrm{null}}$ be estimated? Since \eqref{eq:null_bound} only affects how well the loop is steered, is an upper confidence bound on the mean over the pilot queries sufficient, or should we use the robust bet of~\cite{shaer2026testing}?
-  \item Should the e-process bet once per round on the best new passage, as in \eqref{eq:new_score}, or once per passage? Betting once per passage keeps supported subclaims in fewer rounds, but makes \eqref{eq:null_bound} less plausible when several passages come from the same article.
-  \item Is $M_{t^*}(c)$ the right score for the final filtering step \eqref{eq:final_filter}, or should it be combined with the entailment score $s^{\mathrm{ent}}_{t^*}$?
-  \item Should the kept set $k_{t^*}$ carry a guarantee of its own, as outlined in Section~\ref{subsec:decision}, or is the guarantee of the final filtering step sufficient?
-\end{enumerate}
+% It would be great to get your input on some of these
+% \begin{enumerate}[leftmargin=*]
+%   \item \added{Should the per-round e-value \eqref{eq:round_evalue} use only the new evidence $p_t(c)$, or the entailment score $s^{\mathrm{ent}}_t$ over all evidence collected so far?}
+%   \item \added{Should $K$ be fixed in advance as an upper bound on the number of subclaims, or can the number of subclaims actually created be used?}
+%   \item \added{The e-values \eqref{eq:round_evalue} compare with the most convincing unsupported subclaim of each calibration query, which makes them conservative. Would e-values based on the average over the unsupported subclaims of each calibration query, which would have more power under e-BH, be worth deriving?}
+%   \item \added{Partitioning the calibration set leaves $n_t$ queries for each round, and $e_t(c) \leq n_t + 1$. Is this acceptable, or should a single reference set be reused, as in~\cite{shaer2026testing}?}
+% \end{enumerate}

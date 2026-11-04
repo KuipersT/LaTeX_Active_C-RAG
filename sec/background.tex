@@ -8,14 +8,14 @@ As shown in Figure~\ref{fig:system}, we study a system in which an LLM generates
   0 \text{ otherwise.}
   \end{cases}
 \end{equation}
-Given the subclaims $\hat{y}$, we aim to produce a filtered set $\hat{y} \subset \hat{y}_0$ that includes only supported subclaims with high probability.
+Given the subclaims $\hat{y}_0$, we aim to produce a filtered set $\hat{y} \subset \hat{y}_0$ that includes only supported subclaims with high probability.
  
 Conformal factuality (CF) \cite{mohri2024language} addresses this goal by assuming no information retrieval and by leveraging a score $s(c \mid x)$ that reflects how confident the model is in subclaim $c$, e.g., based on log-probabilities of self-confidence scores~\cite{kadavath2022language,tian2023just}. For a threshold $\tau$, the filtered set is evaluated as
 \begin{equation}\label{eq:filter_set}
   \hat{y} = \{ c \in \hat{y}_0 : s(c \mid x) \geq \tau \}.
 \end{equation}
 
-Conformal-RAG (C-RAG)~\cite{feng2025response} incorporates a RAG pipeline to write the answer $y$ using also documents $D_0 = Retrieve_{\mathcal{K}(x)}$, where $Retrieve_{\mathcal{K}}(\cdot)$ is a retrieval function over a corpus $\mathcal{K}$. Then, C-RAG scores each resulting subclaim by how relevant the retrieved documents $d \in D_0$ are to it, producing the score
+Conformal-RAG (C-RAG)~\cite{feng2025response} incorporates a RAG pipeline to write the answer $y$ using also documents $D_0 = \mathrm{Retrieve}_{\mathcal{K}}(x)$, where $\mathrm{Retrieve}_{\mathcal{K}}(\cdot)$ is a retrieval function over a corpus $\mathcal{K}$. Then, C-RAG scores each resulting subclaim by how relevant the retrieved documents $d \in D_0$ are to it, producing the score
 \begin{equation}\label{eq:crag_score}
   s(c \mid x, D_0) = \max_{d \in D_0} \bigl[\mathrm{sim}(x, d)\, \mathrm{sim}(c, d)\bigr]_+,
 \end{equation}
