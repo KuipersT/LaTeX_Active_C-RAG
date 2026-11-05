@@ -1,0 +1,17 @@
+\section{Experiments}\label{sec:experiments}
+ 
+\tk{This is just a rough plan, but let me know if you agree}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Datasets:} Multi-hop Q\&A datasets that annotate the reasoning chain, e.g., MuSiQue~\cite{trivedi2022musique}, which decomposes each question into single-hop questions with their answers, 2WikiMultiHopQA~\cite{ho2020constructing}, which provides evidence triples, and HotpotQA~\cite{yang2018hotpotqa}, which provides supporting sentences.
+  \item \textbf{Methods:} CF, C-RAG, multi-hop C-RAG, C-RAG with the entailment score \eqref{eq:nli_score}, which isolates the effect of the score, AC-RAG with fixed hyperparameters, which isolates the effect of the loop, and AC-RAG with hyperparameters selected by LTT.
+  \item \textbf{Metrics:} The realised error rate in \eqref{eq:cf}, the risks of Section~\ref{subsec:risks}, i.e., abstention, retention and answer coverage, and the number of rounds and retrieval calls, for the same level $\alpha$.
+  \item \textbf{Bridge and answer subclaims:} Using the reasoning chains of the datasets, each generated subclaim is labelled as a bridge subclaim, such as $c^{\star}_1$, an answer subclaim, such as $c^{\star}_2$, or neither. For each method, we measure
+  \begin{itemize}
+    \item How often the returned set contains a supported answer subclaim, and how often it contains a supported bridge subclaim.
+    \item How often both are returned, so that the answer is grounded.
+    \item How often the bridge subclaim is returned without the answer subclaim, as in the example.
+    \item Among the queries whose answer subclaim was generated and is supported, how often it is removed.
+  \end{itemize}
+  \item \textbf{Where the answer subclaim is lost:} This is mostly for debug, but for each removed answer subclaim, we determine at which stage it was lost, i.e., it was never generated, no retrieved passage entails it, a passage entails it but its score is low, it was removed by the decision block, or it was filtered by the final filtering step.
+  \item \textbf{Ablations:} Comparing the score \eqref{eq:crag_score} with the entailment score \eqref{eq:nli_score} for answer subclaims whose supporting passage has been retrieved tests whether the factor $\mathrm{sim}(x, d)$ penalises passages about the bridge entity. Adding the gold supporting passages to the evidence, i.e., oracle retrieval, separates failures of retrieval from failures of scoring.
+\end{itemize}

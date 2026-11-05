@@ -19,7 +19,7 @@ The decision block partitions the subclaims based on the scores \eqref{eq:nli_sc
   z_t &= \bigl\{ c \in \hat{y}_t \setminus k_{t-1} : s^{\mathrm{con}}_t(c \mid x, D_t) \geq \lambda_{\mathrm{con}} \ \text{and} \ s^{\mathrm{ent}}_t(c \mid x, D_t) < \lambda_{\mathrm{ent}} \bigr\}, \label{eq:removal} \\
   w_t &= \hat{y}_t \setminus (k_t \cup z_t), \label{eq:rework}
 \end{align}
-with $k_{-1} = \emptyset$. The threshold $\lambda_{\mathrm{ent}}$ determines how much evidence a subclaim needs before it is no longer reworked, and $\lambda_{\mathrm{con}}$ how strongly the evidence must contradict a subclaim before it is removed. For instance, since the three probabilities of the NLI model sum to $1$, a threshold $\lambda_{\mathrm{con}} > 1/2$ only removes a subclaim if contradiction is the most likely relation for some passage. A kept subclaim is no longer reworked, which agrees with the subclaims of $k_t$ being kept unchanged by the revision block, and protects a subclaim that is already well supported from being reworded. In the example, $c^{\star}_1$ is entailed by the Jaws article and is kept, whereas no passage of $D_0$ entails $c^{\star}_2$, which is therefore reworked.
+with $k_{t-1} = \emptyset$. The threshold $\lambda_{\mathrm{ent}}$ determines how much evidence a subclaim needs before it is no longer reworked, and $\lambda_{\mathrm{con}}$ how strongly the evidence must contradict a subclaim before it is removed. For instance, since the three probabilities of the NLI model sum to $1$, a threshold $\lambda_{\mathrm{con}} > 1/2$ only removes a subclaim if contradiction is the most likely relation for some passage. A kept subclaim is no longer reworked, which agrees with the subclaims of $k_t$ being kept unchanged by the revision block, and protects a subclaim that is already well supported from being reworded. In the example, $c^{\star}_1$ is entailed by the Jaws article and is kept, whereas no passage of $D_0$ entails $c^{\star}_2$, which is therefore reworked.
 
 The decision block stops at the round
 \begin{equation}
@@ -47,11 +47,24 @@ where the threshold $\hat{\tau}_{\lambda}$ is chosen as in CF, but from calibrat
 
 The returned sets have two properties that are useful for selecting $\lambda$. Firstly, for a given query and given hyperparameters, the returned sets are nested in the threshold, i.e., a larger threshold returns a subset of the subclaims returned by a smaller one. Secondly, the hyperparameters only affect the returned set through the subclaims and the evidence that reach the final filtering step, and through the threshold $\hat{\tau}_{\lambda}$, which is calibrated separately for each $\lambda$. Changing $\lambda$ therefore does not affect the guarantee \eqref{eq:cf}, but it changes how large and how informative the returned set is.
 
-\tk{Alternatively, the e-scores of~\cite{dhillon2026escores} could be used in \eqref{eq:final_cf}, which allows $\alpha$ to be chosen after the scores have been seen.}
+\tk{Alternatively as discussed, the e-scores of~\cite{dhillon2026escores} could be used in \eqref{eq:final_cf} to allow post-hoc choice of alpha, but I haven't included this yet.}
+
+\subsection{Measuring Usefulness of the Final Subclaims}\label{subsec:risks}
+ 
+The loss $L$ in \eqref{eq:risk} determines in which sense the returned set should be useful. Writing $S(\hat{y}) = \{ c \in \hat{y} : a(c \mid x) = 1 \}$ for the supported subclaims of a set $\hat{y}$, three natural choices are the abstention loss, the retention loss and the answer coverage loss,
+\begin{align}
+  L_{\mathrm{abs}}(\hat{y}_{\lambda}(x), x) &= \mathbf{1}\bigl\{ \hat{y}_{\lambda}(x) = \emptyset \bigr\}, \label{eq:loss_abs} \\
+  L_{\mathrm{ret}}(\hat{y}_{\lambda}(x), x) &= 1 - \min\Bigl\{ 1, \frac{|S(\hat{y}_{\lambda}(x))|}{|S(\hat{y}_0)|} \Bigr\}, \label{eq:loss_ret} \\
+  L_{\mathrm{ans}}(\hat{y}_{\lambda}(x), x) &= \mathbf{1}\bigl\{ \text{no subclaim of } S(\hat{y}_{\lambda}(x)) \text{ states the answer to } x \bigr\}, \label{eq:loss_ans}
+\end{align}
+with $L_{\mathrm{ret}} = 0$ if $S(\hat{y}_0) = \emptyset$. The abstention loss \eqref{eq:loss_abs} penalises empty answers, the reetention loss (16) compares the number of supported subclaims that are returned with the number of supported subclaims in the initial answer, and the answer coverage loss \eqref{eq:loss_ans} penalises returned sets that no longer answer the query, as in the example, where the returned set of C-RAG keeps $c^{\star}_1$ but not $c^{\star}_2$. Other choices include the indicator that the returned set contains fewer than a given number of subclaims, the fraction of the atomic facts of the reference $y^*$ that are not entailed by the returned set, and the fraction of pairs of returned subclaims that entail each other, which penalises redundant subclaims created by the revision block.
+ 
+All of these losses can be evaluated in the same way for CF and C-RAG, which only use round $0$, so that the methods can be compared at the same level $\alpha$ in \eqref{eq:cf}. The corresponding risks depend on the hyperparameters in different ways. A higher threshold $\lambda_{\mathrm{ent}}$ or a larger budget $T$ leads to more rework, which is expected to reduce the retention and answer coverage losses at the cost of more rounds. A lower threshold $\lambda_{\mathrm{con}}$ removes more hallucinated subclaims, but also more supported subclaims that the NLI model mistakes for contradicted ones, and a lower fraction $\gamma$ stops the loop earlier. Several of these risks can also be controlled at once, by testing for each $\lambda$ the union of the corresponding null hypotheses~\cite{angelopoulos2021learn}.
+
 
 \subsection{Selecting the Hyperparameters}\label{subsec:ltt}
 
-The guarantee \eqref{eq:cf} holds for any $\lambda$, but the quality of the returned set depends strongly on $\lambda$. For instance, a low threshold $\lambda_{\mathrm{ent}}$ stops reworking subclaims early, which leaves weakly supported subclaims to be removed by the final filtering step, whereas a high threshold keeps reworking them, at the cost of more rounds. We therefore select $\lambda$ so as to control the risk \eqref{eq:risk} of a loss $L$ that measures the quality of the returned set. Examples include the indicator that the returned set contains fewer than a given number of subclaims, a measure of the redundancy among the returned subclaims, and the quality of the final answer obtained by merging the returned subclaims, as judged against the reference $y^*$.
+The guarantee \eqref{eq:cf} holds for any $\lambda$, but the quality of the returned set depends strongly on $\lambda$. For instance, a low threshold $\lambda_{\mathrm{ent}}$ stops reworking subclaims early, which leaves weakly supported subclaims to be removed by the final filtering step, whereas a high threshold keeps reworking them, at the cost of more rounds. We therefore select $\lambda$ so as to control the risk \eqref{eq:risk} for one of the losses in Section~\ref{subsec:risks}.
 
 To this end, we use the Learn-then-Test (LTT) framework~\cite{angelopoulos2021learn}, which turns the selection of hyperparameters into a multiple hypothesis testing problem. For each $\lambda$ in a finite grid $\Lambda$, LTT tests the null hypothesis $H_{\lambda}$ that $R(\lambda) > \varepsilon$, i.e., that $\lambda$ does not achieve the target level $\varepsilon$. A p-value for $H_{\lambda}$ is computed from the losses of $\lambda$ on a set of labelled queries, e.g., by means of a concentration inequality, and a procedure that controls the family-wise error rate at level $\delta$, e.g., the Bonferroni correction, determines the set $\hat{\Lambda}$ of hyperparameters whose null hypotheses are rejected. With probability at least $1 - \delta$ over the labelled queries, every $\lambda \in \hat{\Lambda}$ then satisfies $R(\lambda) \leq \varepsilon$, so that any of them can be used, e.g., the one that requires the fewest rounds on average. If the risk is monotone along some direction of the grid, fixed-sequence testing can be used instead of the Bonferroni correction, which avoids dividing $\delta$ among the hyperparameters.
 
@@ -59,12 +72,12 @@ LTT requires labelled queries on which the loss of every $\lambda \in \Lambda$ c
 
 The labelled queries used by LTT and the calibration queries used by the final filtering step can be obtained in two ways. In the first, they form two disjoint sets. The threshold $\hat{\tau}_{\lambda}$ is computed on the calibration queries, and LTT evaluates the losses of the resulting returned sets on its own queries, so that the guarantee of LTT holds given the calibration queries. The guarantee \eqref{eq:cf} is exact for any $\lambda$ that is fixed in advance, but, as the selected $\lambda$ depends on the thresholds $\hat{\tau}_{\lambda}$, the calibration queries should be refreshed after $\lambda$ has been selected, so that \eqref{eq:cf} also holds for the selected $\lambda$. In the second, the same labelled queries are used for both steps, by including the threshold of the final filtering step among the hyperparameters, and letting LTT control both the risk \eqref{eq:risk} and the probability that the returned set contains an unsupported subclaim. This uses the labelled queries more efficiently and gives a single guarantee for both risks, but it replaces the guarantee \eqref{eq:cf} of CF, which holds on average over the calibration queries, by one that holds with probability at least $1 - \delta$ over them. \tk{For discussion: which of the two ways should we follow?}
 
-\section{Questions for Discussion}
+% \section{Questions for Discussion}
 
-It would be great to get your input on some of these
-\begin{enumerate}[leftmargin=*]
-  \item Which loss $L$ should be controlled, e.g., the size of the returned set, the redundancy among its subclaims, or the quality of the merged answer?
-  \item Which grid $\Lambda$ of hyperparameters should be used, and is the risk \eqref{eq:risk} monotone in any of them, so that fixed-sequence testing can be used?
-  \item Should the labelled queries of LTT and the calibration queries of the final filtering step be disjoint, or should the threshold of the final filtering step be selected by LTT as well?
-  \item Which domains should the labelled queries cover, and should the guarantee be stated for each domain or for their mixture?
-\end{enumerate}
+% It would be great to get your input on some of these
+% \begin{enumerate}[leftmargin=*]
+%   \item Which loss $L$ should be controlled, e.g., the size of the returned set, the redundancy among its subclaims, or the quality of the merged answer?
+%   \item Which grid $\Lambda$ of hyperparameters should be used, and is the risk \eqref{eq:risk} monotone in any of them, so that fixed-sequence testing can be used?
+%   \item Should the labelled queries of LTT and the calibration queries of the final filtering step be disjoint, or should the threshold of the final filtering step be selected by LTT as well?
+%   \item Which domains should the labelled queries cover, and should the guarantee be stated for each domain or for their mixture?
+% \end{enumerate}
